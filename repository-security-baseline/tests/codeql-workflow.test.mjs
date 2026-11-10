@@ -49,19 +49,33 @@ test('consumer owns triggers and language selection, not scanner implementation'
   const job = caller.jobs.codeql;
   assert.match(job.uses, /\/.github\/workflows\/codeql.yml@/);
   assert.equal(job.with.languages, '${{ vars.CODEQL_LANGUAGES }}');
-  assert.equal(job.if, "vars.CODEQL_LANGUAGES != ''");
+  assert.equal(job.if, "${{ !cancelled() && vars.CODEQL_LANGUAGES != '' }}");
   assert.equal(job.permissions['security-events'], 'write');
   assert.equal(caller.permissions.contents, 'read');
   assert.equal(caller.jobs['security-baseline'].permissions, undefined);
-  assert.equal(caller.jobs.publish.needs, 'security-baseline');
+  assert.deepEqual(caller.jobs.publish.needs, ['security-baseline', 'codeql']);
   assert.equal(caller.jobs.publish.permissions.contents, 'write');
-  assert.equal(job.needs, undefined);
+  assert.equal(job.needs, 'security-baseline');
   assert.ok(!job.steps);
   assert.ok(!job.strategy);
   assert.match(job.with.runner, /vars.SECURITY_RUNNER/);
   const text = await readFile(path, 'utf8');
   assert.ok(!text.includes('secrets.'));
   assert.ok(!text.includes('pull_request_target'));
+});
+
+test('ordered scans preserve reporting on failures and optional CodeQL skips', () => {
+  const codeql = caller.jobs.codeql;
+  const publish = caller.jobs.publish;
+  assert.equal(codeql.needs, 'security-baseline');
+  assert.match(codeql.if, /!cancelled\(\)/);
+  assert.ok(!codeql.if.includes('success()'));
+  assert.deepEqual(publish.needs, ['security-baseline', 'codeql']);
+  assert.match(publish.if, /^always\(\) &&/);
+  assert.equal(publish.with['scan-result'], '${{ needs.security-baseline.result }}');
+  assert.equal(publish.with.summary, '${{ needs.security-baseline.outputs.summary }}');
+  assert.match(publish.if, /github\.event_name/);
+  assert.match(publish.if, /github\.event\.repository\.default_branch/);
 });
 
 test('combined consumer example is the only normal baseline caller and allows dashboard collection from the same run', async () => {

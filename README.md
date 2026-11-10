@@ -64,7 +64,9 @@ The code-scanning upload workflow has its own `runner` input.
 Enable Trivy infrastructure checks by passing `scanners: vuln,secret,misconfig`
 in the application caller. The same
 [baseline caller](repository-security-baseline/examples/security-baseline.yml)
-includes an optional parallel CodeQL job for SAST. Set `CODEQL_LANGUAGES` to
+includes an optional CodeQL job for SAST, chained **Trivy -> CodeQL -> publisher**.
+The final publisher waits for both scanners, even if CodeQL is disabled or fails.
+Set `CODEQL_LANGUAGES` to
 `["go"]` or `["javascript-typescript","java-kotlin"]`, or pass the `languages`
 input directly in that job. No second consumer workflow is needed. The implementation lives
 centrally in the reusable `.github/workflows/codeql.yml`, alongside the Trivy

@@ -24,7 +24,8 @@ jobs:
       cache-db: ${{ vars.SECURITY_CACHE_DB == 'true' }}
 
   codeql:
-    if: vars.CODEQL_LANGUAGES != ''
+    needs: security-baseline
+    if: ${{ !cancelled() && vars.CODEQL_LANGUAGES != '' }}
     permissions:
       contents: read
       security-events: write
@@ -34,7 +35,7 @@ jobs:
       runner: ${{ vars.SECURITY_RUNNER || '["ubuntu-24.04"]' }}
 
   publish:
-    needs: security-baseline
+    needs: [security-baseline, codeql]
     if: >-
       always() && (vars.SECURITY_RESULTS_STORAGE || 'branch') == 'branch' &&
       contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event_name) &&

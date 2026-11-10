@@ -137,8 +137,9 @@ and dashboard without changing the reusable workflow or its pinned version.
 For application SAST, use the same [baseline caller](examples/security-baseline.yml);
 do not install a second consumer workflow. Set Actions variable `CODEQL_LANGUAGES`
 to a JSON language array, for example `["javascript-typescript","java-kotlin"]`.
-Leaving it unset skips CodeQL. The caller contains parallel Trivy and CodeQL jobs,
-plus the trusted Trivy results publisher, sharing one set of triggers.
+Leaving it unset skips CodeQL. The caller chains **Trivy -> CodeQL -> publisher**
+under one set of triggers. CodeQL still runs after a failed Trivy scan unless the
+run is cancelled, so one scanner failure does not prevent the other analysis.
 
 The CodeQL job invokes the central reusable [CodeQL workflow](.github/workflows/codeql.yml).
 Publish that implementation at the central repository's root `.github/workflows/codeql.yml`
@@ -186,8 +187,11 @@ jobs:
 
 In the dashboard inventory, set `codeql.workflow` to `security-baseline.yml`, the
 same caller as Trivy, and match its languages. The dashboard waits for the entire
-workflow to complete. Any failed job keeps the overall run non-passing; Trivy's
-publisher still runs independently of CodeQL when Trivy has finished.
+workflow to complete. Any failed job keeps the overall run non-passing. The final
+publisher waits for both scanners, including an optional CodeQL skip, and attempts
+to publish Trivy results even if a scan failed. Its summary remains Trivy-only;
+CodeQL uploads its own results during analysis, and the dashboard combines both
+sources after checking the completed workflow's health.
 
 Trivy has no licence fee. CodeQL scanning is free for public repositories; private
 repositories require GitHub Code Security entitlement. Standard GitHub-hosted
