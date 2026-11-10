@@ -144,7 +144,12 @@ zero rules show limited coverage. CodeQL counts are **open alerts**, excluding
 dismissed alerts; alerts without a security severity use `UNKNOWN`. Alert details, source
 paths and code snippets are never written to the static site.
 
-The application column shows its own status, time and run link. Overall repository
+The application column shows its own status, time and run link. Successful current
+analyses explicitly show completion, rules run and open alerts (for example,
+**Completed · 35 rules · 0 alerts**). Rule counts are summed across the latest
+validated analysis for each configured language, not deduplicated across languages.
+Missing, failed, pending, stale and limited-coverage scans retain their diagnostic
+messages instead of a completion label. Overall repository
 status reflects both scanners; a failed/missing app scan cannot leave an overall
 green baseline result. Browser freshness checks age both scans independently.
 Combined counts/totals are unavailable if any configured scanner's counts are

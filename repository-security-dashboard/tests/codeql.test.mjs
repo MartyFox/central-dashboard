@@ -72,6 +72,8 @@ test('CodeQL config is opt-in and requires unique supported languages and a work
 test('CodeQL projects only open-alert counts, severities, timestamps and a trusted run URL', async () => {
   const result = await collect({ alerts: [[alert(), alert(null, 2), alert('critical', 3)]] });
   assert.equal(result.status, 'findings');
+  assert.equal(result.rulesCount, 100);
+  assert.equal(result.message, 'Completed \u00b7 100 rules \u00b7 3 alerts');
   assert.deepEqual(result.counts, { ...zero, HIGH: 1, UNKNOWN: 1, CRITICAL: 1 });
   assert.equal(result.scannedAt, analysis.created_at.replace('Z', '.000Z'));
   assert.equal(result.runUrl, 'https://github.com/acme/api/actions/runs/123');
@@ -79,13 +81,35 @@ test('CodeQL projects only open-alert counts, severities, timestamps and a trust
 });
 
 test('zero alerts is clear only after successful current analyses for every configured language', async () => {
-  assert.equal((await collect({ alerts: [[]] })).status, 'clear');
+  const clear = await collect({ alerts: [[]], analyses: [[{ ...analysis, rules_count: 35 }]] });
+  assert.equal(clear.status, 'clear');
+  assert.equal(clear.rulesCount, 35);
+  assert.equal(clear.message, 'Completed \u00b7 35 rules \u00b7 0 alerts');
   const multi = { ...entry, codeql: { ...entry.codeql, languages: ['go', 'javascript-typescript'] } };
   assert.equal((await collect({}, config, multi)).status, 'missing');
   const result = await collect({ analyses: [[analysis], [
     { ...analysis, category: 'security-baseline/language:javascript-typescript' },
   ]], alerts: [[]] }, config, multi);
   assert.equal(result.status, 'clear');
+  assert.equal(result.rulesCount, 200);
+  assert.equal(result.message, 'Completed \u00b7 200 rules \u00b7 0 alerts');
+});
+
+test('execution summary handles singular counts without marking incomplete scans completed', async () => {
+  const single = await collect({ analyses: [[{ ...analysis, rules_count: 1 }]] });
+  assert.equal(single.message, 'Completed \u00b7 1 rule \u00b7 1 alert');
+  for (const options of [
+    { runs: [[]] }, { runs: [[{ ...run, status: 'in_progress' }]] },
+    { runs: [[{ ...run, conclusion: 'failure' }]] },
+    { analyses: [[{ ...analysis, warning: 'warning' }]] },
+    { analyses: [[{ ...analysis, rules_count: 0 }]] },
+  ]) {
+    const result = await collect(options);
+    assert.ok(!result.message.startsWith('Completed'));
+  }
+  const stale = await collect({}, { ...config, staleAfterHours: 1 });
+  assert.equal(stale.status, 'stale');
+  assert.ok(!stale.message.startsWith('Completed'));
 });
 
 test('failed, pending, missing and previous-attempt analyses never become zero-shaped success', async () => {
@@ -183,6 +207,8 @@ test('build emits sanitised application data and independent failure states alon
     const data = await build(config, async () => fakeApi(), directory, now, async () => report);
     assert.equal(data.repositories[0].status, 'clear');
     assert.equal(data.repositories[0].application.status, 'findings');
+    assert.equal(data.repositories[0].application.rulesCount, 100);
+    assert.equal(data.repositories[0].application.message, 'Completed \u00b7 100 rules \u00b7 1 alert');
     const json = await readFile(join(directory, 'data.json'), 'utf8');
     assert.ok(!json.includes('DO_NOT_PUBLISH'));
     const html = await readFile(join(directory, 'index.html'), 'utf8');

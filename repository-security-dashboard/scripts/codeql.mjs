@@ -78,6 +78,7 @@ export async function collectCodeQL(entry, config, apiForRepository, now) {
       }
     }
     result.counts = counts;
+    result.rulesCount = reports.reduce((sum, analysis) => sum + analysis.rules_count, 0);
     result.scannedAt = new Date(Math.min(...reports.map(analysis => Date.parse(analysis.created_at)))).toISOString();
     if (now.getTime() - Date.parse(result.scannedAt) > config.staleAfterHours * 3600_000) {
       return { ...result, status: 'stale', message: 'CodeQL scan older than freshness threshold' };
@@ -87,7 +88,7 @@ export async function collectCodeQL(entry, config, apiForRepository, now) {
     }
     const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
     return { ...result, status: total ? 'findings' : 'clear',
-      message: total ? 'Open CodeQL alerts; dismissed alerts excluded' : 'No open CodeQL alerts in configured languages' };
+      message: `Completed \u00b7 ${result.rulesCount} ${result.rulesCount === 1 ? 'rule' : 'rules'} \u00b7 ${total} ${total === 1 ? 'alert' : 'alerts'}` };
   } catch (error) {
     const diagnostic = error instanceof DashboardError ? error.message : 'Unexpected response or local I/O error';
     console.error(`${entry.repository} CodeQL: ${diagnostic}`);
