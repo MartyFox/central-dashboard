@@ -1,0 +1,80 @@
+name: Collect security results and build dashboard
+
+on:
+  schedule:
+    - cron: "30 7 * * *"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Approve publishing repository names and vulnerability counts to this repository's Pages site"
+        type: boolean
+        default: false
+      preview:
+        description: Retain a downloadable dashboard preview artifact (uses artifact storage).
+        type: boolean
+        default: false
+      runner:
+        description: 'Optional JSON runner labels; otherwise DASHBOARD_RUNNER or ["ubuntu-24.04"].'
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-dashboard
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ${{ fromJSON(inputs.runner || vars.DASHBOARD_RUNNER || '["ubuntu-24.04"]') }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: repository-security-dashboard
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - run: npm run check && npm test
+      - name: Collect only configured repositories
+        env:
+          GH_TOKEN: ${{ secrets.DASHBOARD_READ_TOKEN }}
+          GH_APP_ID: ${{ vars.DASHBOARD_APP_ID }}
+          GH_APP_INSTALLATION_ID: ${{ vars.DASHBOARD_APP_INSTALLATION_ID }}
+          GH_APP_INSTALLATIONS: ${{ vars.DASHBOARD_APP_INSTALLATIONS }}
+          GH_APP_PRIVATE_KEY: ${{ secrets.DASHBOARD_APP_PRIVATE_KEY }}
+        run: npm run collect
+      - name: Store sanitised dashboard for inspection
+        if: inputs.preview || vars.DASHBOARD_PREVIEW == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: security-dashboard-preview
+          path: repository-security-dashboard/dist/
+          retention-days: 1
+          if-no-files-found: error
+      - name: Prepare explicitly approved Pages deployment
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: repository-security-dashboard/dist/
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    needs: collect
+    runs-on: ${{ fromJSON(inputs.runner || vars.DASHBOARD_RUNNER || '["ubuntu-24.04"]') }}
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy approved dashboard
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

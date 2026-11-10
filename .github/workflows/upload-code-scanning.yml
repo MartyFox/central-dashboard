@@ -1,0 +1,53 @@
+# Repository Security Baseline - optional GitHub code scanning upload.
+#
+# Downloads the SARIF produced by security-baseline.yml and uploads it to GitHub code
+# scanning. Kept separate so only this small job, which runs no scanner, holds
+# `security-events: write`.
+#
+# Requires code scanning to be available on the repository (public repositories, or
+# GitHub Code Security on private/internal repositories).
+
+name: Security baseline - upload to code scanning (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: JSON runner labels for the upload job.
+        type: string
+        default: '["ubuntu-24.04"]'
+      artifact-name:
+        description: Results artifact produced by security-baseline.yml.
+        type: string
+        default: security-baseline-results
+      category:
+        description: Code scanning category, so multiple uploads do not overwrite each other.
+        type: string
+        default: security-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    name: Upload SARIF
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: 10
+    # Pull requests from forks cannot be granted security-events: write.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - name: Download results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ runner.temp }}/security-baseline
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: ${{ runner.temp }}/security-baseline/trivy-results.sarif
+          category: ${{ inputs.category }}

@@ -1,0 +1,10 @@
+# Exceptions for the self-test. Every entry needs a statement (reason) and expired_at.
+vulnerabilities:
+  - id: CVE-2018-18074
+    paths:
+      - requirements.txt
+    statement: Self-test of a valid exception. Owner - platform team.
+    expired_at: 2027-03-31
+  - id: CVE-2020-1747
+    statement: Self-test of an expired exception - must not suppress the finding.
+    expired_at: 2025-01-01

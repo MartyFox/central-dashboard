@@ -1,0 +1,24 @@
+{
+  "staleAfterHours": 192,
+  "installations": {
+    "your-org": "123456",
+    "another-owner": "789012"
+  },
+  "repositories": [
+    {
+      "repository": "your-org/payments-api",
+      "workflow": "security-baseline.yml",
+      "storage": "branch",
+      "resultsBranch": "security-results",
+      "resultsPath": "security-summary.json"
+    },
+    {
+      "repository": "another-owner/customer-web",
+      "workflow": "security.yml",
+      "storage": "artifacts",
+      "artifact": "security-baseline-results",
+      "branch": "main",
+      "team": "Customer services"
+    }
+  ]
+}

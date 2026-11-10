@@ -1,0 +1,3 @@
+# Deliberately outdated versions for the security baseline self-test. Do not use.
+requests==2.19.1
+PyYAML==5.3

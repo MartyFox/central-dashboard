@@ -1,0 +1,72 @@
+# Self-test for the accelerator. Runs the reusable workflow against known-bad fixtures and
+# asserts the expected findings, then scans this repository in enforce mode (dogfooding).
+
+name: Self-test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    name: Scan fixtures
+    uses: ./.github/workflows/security-baseline.yml
+    with:
+      mode: report
+      scanners: vuln,secret,misconfig
+      scan-path: tests/fixtures/vulnerable-project
+      ignore-file: tests/fixtures/vulnerable-project/.trivyignore.yaml
+      artifact-name: fixture-results
+
+  assert:
+    name: Assert fixture findings
+    needs: fixtures
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Download results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: fixture-results
+          path: ${{ runner.temp }}/results
+
+      - name: Check outputs and results
+        env:
+          RESULT: ${{ needs.fixtures.result }}
+          BLOCKING: ${{ needs.fixtures.outputs.blocking-count }}
+          VULNS: ${{ needs.fixtures.outputs.vulnerability-count }}
+          SECRETS: ${{ needs.fixtures.outputs.secret-count }}
+          MISCONFIGS: ${{ needs.fixtures.outputs.misconfiguration-count }}
+        run: |
+          set -euo pipefail
+          json="$RUNNER_TEMP/results/trivy-results.json"
+          ids=$(jq -r '[.Results[]?.Vulnerabilities[]?.VulnerabilityID] | unique | join(" ")' "$json")
+          failures=0
+          check() { if eval "$2"; then echo "PASS: $1"; else echo "::error::FAIL: $1"; failures=$((failures + 1)); fi; }
+          check "report mode does not fail the run" '[[ "$RESULT" == success ]]'
+          check "vulnerabilities found" '[[ "${VULNS:-0}" -gt 0 ]]'
+          check "secret found" '[[ "${SECRETS:-0}" -gt 0 ]]'
+          check "misconfiguration found" '[[ "${MISCONFIGS:-0}" -gt 0 ]]'
+          check "blocking findings counted" '[[ "${BLOCKING:-0}" -gt 0 ]]'
+          check "valid exception suppresses CVE-2018-18074" '[[ " $ids " != *" CVE-2018-18074 "* ]]'
+          check "expired exception does not suppress CVE-2020-1747" '[[ " $ids " == *" CVE-2020-1747 "* ]]'
+          check "SARIF produced" '[[ -s "$RUNNER_TEMP/results/trivy-results.sarif" ]]'
+          check "secret value not in summary data" '! grep -q "FAKEKEYFORSECURITYBASELINE" "$RUNNER_TEMP/results/trivy-results.sarif"'
+          exit "$failures"
+
+  dogfood:
+    name: Scan this repository
+    uses: ./.github/workflows/security-baseline.yml
+    with:
+      mode: enforce
+      scanners: vuln,secret,misconfig
+      skip-dirs: tests/fixtures
+      artifact-name: dogfood-results

@@ -1,0 +1,31 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #17263b; background: #f3f6fa; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+header { padding: 2rem 4vw; background: #142a43; color: #fff; }
+h1 { margin: .4rem 0 1rem; font-size: clamp(1.7rem, 3vw, 2.7rem); }
+.eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: .8rem; color: #b5d5ef; }
+main { padding: 2rem 4vw; }
+.totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; }
+.card { padding: 1.4rem; border: 1px solid #d5deea; border-radius: .5rem; background: white; }
+.card strong { display: block; font-size: 2rem; }
+.card span { color: #42526a; }
+.notice { border-left: 4px solid #456b94; padding: 1rem; background: #e6edf7; }
+.filters { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 2rem; }
+label { display: flex; flex-direction: column; gap: .4rem; font-weight: 600; }
+input, select { font: inherit; padding: .65rem; border: 1px solid #7d8b9b; border-radius: .25rem; background: white; color: #17263b; }
+input { width: min(320px, 80vw); }
+.table-wrap { overflow-x: auto; border: 1px solid #d5deea; border-radius: .4rem; background: white; }
+table { border-collapse: collapse; width: 100%; text-align: left; }
+caption { text-align: left; padding: 1rem; color: #42526a; }
+th, td { padding: 1rem .75rem; border-bottom: 1px solid #e2e8ef; vertical-align: top; }
+thead th { background: #e9eff7; font-size: .85rem; }
+tbody th { min-width: 220px; overflow-wrap: anywhere; }
+small { display: block; color: #42526a; font-size: .8rem; font-weight: 400; margin-top: .4rem; }
+.badge { display: inline-block; border-radius: .3rem; padding: .3rem .5rem; font-size: .8rem; font-weight: 700; white-space: nowrap; background: #edf0f4; }
+.clear { color: #15552f; background: #def2e5; }
+.findings, .failed, .error { color: #8c2030; background: #fce3e6; }
+.stale, .limited, .missing, .expired, .pending { color: #68460b; background: #fff0cf; }
+a { color: #07599a; }
+footer { padding: 1rem 4vw 2rem; color: #42526a; font-size: .85rem; }
+#error { padding: 1rem; color: #8c2030; background: #fce3e6; }
+:focus-visible { outline: 3px solid #1268b5; outline-offset: 3px; }

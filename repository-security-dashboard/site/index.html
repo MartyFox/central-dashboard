@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Repository security dashboard</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <header>
+    <p class="eyebrow">Platform security / repository baseline</p>
+    <h1>Repository security dashboard</h1>
+    <p>Explicitly selected repositories. Existing scan results, not new scans.</p>
+    <p id="updated" role="status">Loading dashboard data...</p>
+  </header>
+  <main>
+    <section id="totals" class="totals" aria-label="Organisation summary"></section>
+    <p class="notice">Counts include all reported severities after exceptions. They are not blocking-policy counts.
+      No reported findings does not prove complete coverage. Missing counts are never treated as zero.</p>
+    <section class="filters" aria-label="Filter repositories">
+      <label>Repository or team<input id="query" type="search" placeholder="Search configured repositories"></label>
+      <label>Status<select id="status"><option value="">All statuses</option></select></label>
+      <label>Finding type<select id="type">
+        <option value="all">All types</option><option value="vulnerabilities">Vulnerabilities</option>
+        <option value="secrets">Secrets</option><option value="misconfigurations">Misconfigurations</option>
+      </select></label>
+      <label>Severity<select id="severity"><option value="">All severities</option></select></label>
+    </section>
+    <p id="shown" aria-live="polite"></p>
+    <div class="table-wrap">
+      <table>
+        <caption>Security results by repository. Severity columns follow the selected finding type.</caption>
+        <thead><tr>
+          <th scope="col">Repository</th><th scope="col">Status</th>
+          <th scope="col">Critical</th><th scope="col">High</th><th scope="col">Medium</th>
+          <th scope="col">Low</th><th scope="col">Unknown</th>
+          <th scope="col">Secrets</th><th scope="col">Detected targets</th>
+          <th scope="col">Scan time</th><th scope="col">Latest run</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p id="error" role="alert" hidden></p>
+  </main>
+  <footer>No credentials or raw scanner reports are served by this site. Access to linked repositories is managed by GitHub.</footer>
+</body>
+</html>

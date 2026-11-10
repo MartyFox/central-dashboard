@@ -1,0 +1,399 @@
+# Repository Security Baseline - reusable scan workflow.
+#
+# Scans a repository with Trivy for known vulnerabilities in declared dependencies,
+# exposed secrets and (optionally) misconfigurations. Results are published as a job
+# summary and a downloadable artifact (JSON + SARIF). In `enforce` mode the run fails
+# when blocking findings are present.
+#
+# Callers only need `contents: read`. Uploading to GitHub code scanning is handled by the
+# separate upload-code-scanning.yml workflow so that `security-events: write` is never
+# granted to the job that runs the scanner.
+
+name: Security baseline (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: 'JSON runner labels, e.g. ["ubuntu-24.04"] or ["self-hosted","linux","x64"]. Linux x64 required.'
+        type: string
+        default: '["ubuntu-24.04"]'
+      results-storage:
+        description: "'artifacts' uploads JSON/SARIF; 'branch' returns a sanitised summary for the separate publisher."
+        type: string
+        default: artifacts
+      artifact-retention-days:
+        description: Artifact retention in days (1..90, subject to repository limits).
+        type: number
+        default: 30
+      cache-db:
+        description: Use GitHub Actions cache for Trivy databases. Disable to avoid remote cache storage.
+        type: boolean
+        default: true
+      mode:
+        description: "`report` never fails the run; `enforce` fails when blocking findings exist."
+        type: string
+        default: report
+      severity:
+        description: Comma-separated severities that count as blocking (UNKNOWN, LOW, MEDIUM, HIGH, CRITICAL).
+        type: string
+        default: CRITICAL,HIGH
+      fail-on-unfixed:
+        description: Treat vulnerabilities with no fixed version as blocking.
+        type: boolean
+        default: false
+      scanners:
+        description: Comma-separated Trivy scanners (vuln, secret, misconfig).
+        type: string
+        default: vuln,secret
+      scan-path:
+        description: Path to scan, relative to the repository root.
+        type: string
+        default: "."
+      skip-dirs:
+        description: Comma-separated directories or globs to skip, relative to scan-path.
+        type: string
+        default: ""
+      ignore-file:
+        description: Path to a .trivyignore.yaml exceptions file, relative to the repository root.
+        type: string
+        default: .trivyignore.yaml
+      max-exception-days:
+        description: Maximum number of days an exception may run before it expires.
+        type: number
+        default: 180
+      db-repository:
+        description: Optional OCI repository for the vulnerability database (for internal mirrors).
+        type: string
+        default: ""
+      artifact-name:
+        description: Name of the results artifact. Change it if you call this workflow more than once per run.
+        type: string
+        default: security-baseline-results
+    outputs:
+      summary:
+        description: Sanitised counts and scan metadata for publish-results.yml; empty when scanning failed.
+        value: ${{ jobs.scan.outputs.summary }}
+      blocking-count:
+        description: Number of findings that meet the blocking criteria.
+        value: ${{ jobs.scan.outputs.blocking-count }}
+      vulnerability-count:
+        description: Total vulnerabilities found (all severities).
+        value: ${{ jobs.scan.outputs.vulnerability-count }}
+      secret-count:
+        description: Total secrets found.
+        value: ${{ jobs.scan.outputs.secret-count }}
+      misconfiguration-count:
+        description: Total failed misconfiguration checks.
+        value: ${{ jobs.scan.outputs.misconfiguration-count }}
+      artifact-name:
+        description: Name of the uploaded results artifact.
+        value: ${{ inputs.artifact-name }}
+
+permissions:
+  contents: read
+
+env:
+  # Update both values together. See README "Updating Trivy" - the checksum must come
+  # from an immutable, signature-verified release, never from `latest`.
+  TRIVY_VERSION: 0.76.1
+  TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+
+jobs:
+  scan:
+    name: Scan
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 20
+    outputs:
+      summary: ${{ steps.evaluate.outputs.summary }}
+      blocking-count: ${{ steps.evaluate.outputs.blocking-count }}
+      vulnerability-count: ${{ steps.evaluate.outputs.vulnerability-count }}
+      secret-count: ${{ steps.evaluate.outputs.secret-count }}
+      misconfiguration-count: ${{ steps.evaluate.outputs.misconfiguration-count }}
+    steps:
+      - name: Validate inputs
+        env:
+          MODE: ${{ inputs.mode }}
+          SEVERITY: ${{ inputs.severity }}
+          SCANNERS: ${{ inputs.scanners }}
+          SCAN_PATH: ${{ inputs.scan-path }}
+          IGNORE_FILE: ${{ inputs.ignore-file }}
+          MAX_DAYS: ${{ inputs.max-exception-days }}
+          RESULTS_STORAGE: ${{ inputs.results-storage }}
+          RETENTION: ${{ inputs.artifact-retention-days }}
+        run: |
+          set -euo pipefail
+          errors=0
+          [[ "$RESULTS_STORAGE" =~ ^(artifacts|branch)$ ]] || { echo "::error::results-storage must be artifacts or branch"; errors=1; }
+          [[ "$RETENTION" =~ ^[0-9]+$ && "$RETENTION" -ge 1 && "$RETENTION" -le 90 ]] \
+            || { echo "::error::artifact-retention-days must be 1..90"; errors=1; }
+          [[ "$MODE" =~ ^(report|enforce)$ ]] || { echo "::error::mode must be 'report' or 'enforce' (got '$MODE')"; errors=1; }
+          [[ "$SEVERITY" =~ ^(UNKNOWN|LOW|MEDIUM|HIGH|CRITICAL)(,(UNKNOWN|LOW|MEDIUM|HIGH|CRITICAL))*$ ]] \
+            || { echo "::error::severity must be a comma-separated list of UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"; errors=1; }
+          [[ "$SCANNERS" =~ ^(vuln|secret|misconfig)(,(vuln|secret|misconfig))*$ ]] \
+            || { echo "::error::scanners must be a comma-separated list of vuln,secret,misconfig"; errors=1; }
+          [[ "$SCAN_PATH" != /* && "$SCAN_PATH" != *..* ]] \
+            || { echo "::error::scan-path must be relative to the repository root"; errors=1; }
+          [[ "$IGNORE_FILE" == *.yaml || "$IGNORE_FILE" == *.yml ]] \
+            || { echo "::error::ignore-file must be a .trivyignore.yaml file so every exception has a reason and expiry"; errors=1; }
+          [[ "$IGNORE_FILE" != /* && "$IGNORE_FILE" != *..* ]] \
+            || { echo "::error::ignore-file must be relative to the repository root"; errors=1; }
+          [[ "$MAX_DAYS" =~ ^[0-9]+$ ]] || { echo "::error::max-exception-days must be a whole number"; errors=1; }
+          exit "$errors"
+
+      - name: Check runner prerequisites
+        run: |
+          set -euo pipefail
+          [[ "$RUNNER_OS" == Linux && "$RUNNER_ARCH" == X64 ]] \
+            || { echo "::error::Baseline requires Linux x64 (hosted or self-hosted)"; exit 1; }
+          for tool in curl tar sha256sum jq yq; do
+            command -v "$tool" >/dev/null || { echo "::error::Runner missing $tool"; exit 1; }
+          done
+          yq --version | grep -q 'mikefarah/yq' \
+            || { echo "::error::Runner requires mikefarah/yq v4"; exit 1; }
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install Trivy (pinned version, checksum verified)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/trivy-bin"
+          archive="$RUNNER_TEMP/trivy.tar.gz"
+          curl -sSfL --retry 3 -o "$archive" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP/trivy-bin" trivy
+          echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/trivy-bin/trivy" --version
+
+      - name: Get date for database cache
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore vulnerability database cache
+        if: inputs.cache-db
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/trivy-cache
+          key: trivy-db-${{ runner.os }}-${{ steps.date.outputs.date }}
+          restore-keys: trivy-db-${{ runner.os }}-
+
+      - name: Initialise scan output
+        run: |
+          set -euo pipefail
+          # A self-hosted runner may retain files from earlier jobs.
+          mkdir -p "$RUNNER_TEMP/security-baseline"
+          rm -f "$RUNNER_TEMP/security-baseline/trivy-results.json" "$RUNNER_TEMP/security-baseline/trivy-results.sarif"
+
+      - name: Check exceptions file
+        env:
+          MODE: ${{ inputs.mode }}
+          IGNORE_FILE: ${{ inputs.ignore-file }}
+          MAX_DAYS: ${{ inputs.max-exception-days }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f "$IGNORE_FILE" ]]; then
+            echo "No exceptions file at $IGNORE_FILE."
+            exit 0
+          fi
+          level=warning; [[ "$MODE" == enforce ]] && level=error
+          problems=$(yq -o=json '.' "$IGNORE_FILE" | jq -r --argjson max "$MAX_DAYS" '
+            (now | strftime("%Y-%m-%d")) as $today
+            | (now + ($max * 86400) | strftime("%Y-%m-%d")) as $limit
+            | (. // {}) | to_entries[] | .key as $section | (.value // [])[]
+            | (.id // "<no id>") as $id
+            | if (.statement // "") == "" then "\($section)/\($id): missing statement (reason)"
+              elif (.expired_at // "") == "" then "\($section)/\($id): missing expired_at"
+              elif (.expired_at | tostring | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") | not) then "\($section)/\($id): expired_at must be yyyy-mm-dd"
+              elif (.expired_at | tostring) < $today then "\($section)/\($id): expired on \(.expired_at) and no longer suppresses findings"
+              elif (.expired_at | tostring) > $limit then "\($section)/\($id): expires \(.expired_at), more than \($max) days away"
+              else empty end')
+          if [[ -z "$problems" ]]; then
+            echo "Exceptions file $IGNORE_FILE passed policy checks."
+            exit 0
+          fi
+          while IFS= read -r line; do echo "::${level} file=${IGNORE_FILE}::${line}"; done <<< "$problems"
+          if [[ "$level" == error ]]; then exit 1; fi
+
+      - name: Run Trivy
+        env:
+          SCANNERS: ${{ inputs.scanners }}
+          SCAN_PATH: ${{ inputs.scan-path }}
+          SKIP_DIRS: ${{ inputs.skip-dirs }}
+          IGNORE_FILE: ${{ inputs.ignore-file }}
+          DB_REPOSITORY: ${{ inputs.db-repository }}
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/security-baseline"
+          mkdir -p "$results"
+          args=(fs
+            --scanners "$SCANNERS"
+            --format json
+            --output "$results/trivy-results.json"
+            --exit-code 0
+            --cache-dir "$RUNNER_TEMP/trivy-cache"
+            --timeout 15m
+            --no-progress
+            --skip-version-check
+            --disable-telemetry)
+          if [[ -f "$IGNORE_FILE" ]]; then
+            args+=(--ignorefile "$GITHUB_WORKSPACE/$IGNORE_FILE")
+          else
+            args+=(--ignorefile "")
+          fi
+          if [[ -n "$DB_REPOSITORY" ]]; then
+            args+=(--db-repository "$DB_REPOSITORY")
+          fi
+          IFS=',' read -ra dirs <<< "$SKIP_DIRS"
+          for dir in "${dirs[@]}"; do
+            dir="$(echo "$dir" | xargs)"
+            [[ -n "$dir" ]] && args+=(--skip-dirs "$dir")
+          done
+          # Run from the scan root with an empty config so repository-controlled trivy.yaml,
+          # trivy-secret.yaml or .trivyignore files cannot silently change scanner behaviour.
+          cd "$GITHUB_WORKSPACE/$SCAN_PATH"
+          echo '{}' > "$RUNNER_TEMP/trivy-empty.yaml"
+          args+=(--config "$RUNNER_TEMP/trivy-empty.yaml" --secret-config "")
+          trivy "${args[@]}" .
+          trivy convert --format sarif --output "$results/trivy-results.sarif" "$results/trivy-results.json"
+
+      - name: Summarise and evaluate findings
+        id: evaluate
+        env:
+          MODE: ${{ inputs.mode }}
+          SEVERITY: ${{ inputs.severity }}
+          FAIL_ON_UNFIXED: ${{ inputs.fail-on-unfixed }}
+          SCANNERS: ${{ inputs.scanners }}
+          SCAN_PATH: ${{ inputs.scan-path }}
+          SKIP_DIRS: ${{ inputs.skip-dirs }}
+        run: |
+          set -euo pipefail
+          json="$RUNNER_TEMP/security-baseline/trivy-results.json"
+          # Shared jq definitions. Expects --arg sev and --arg unfixed.
+          defs='
+            def esc: tostring | gsub("[\r\n]+"; " ") | gsub("\\|"; "\\|");
+            def rank: {"CRITICAL":0,"HIGH":1,"MEDIUM":2,"LOW":3,"UNKNOWN":4}[.] // 5;
+            def blocking_sev: . as $s | any($sev | split(",")[]; . == $s);
+            def blocking_vuln: (.Severity | blocking_sev) and ($unfixed == "true" or (.FixedVersion // "") != "");
+            def blocking_misconf: .Status == "FAIL" and (.Severity | blocking_sev);
+            def rows(f): [.Results[]? as $r | $r | f | . + {Target: $r.Target}];
+          '
+          q() { jq -r --arg sev "$SEVERITY" --arg unfixed "$FAIL_ON_UNFIXED" "$defs $1" "$json"; }
+
+          vulns=$(q '[.Results[]?.Vulnerabilities[]?] | length')
+          secrets=$(q '[.Results[]?.Secrets[]?] | length')
+          misconfigs=$(q '[.Results[]?.Misconfigurations[]? | select(.Status == "FAIL")] | length')
+          blocking=$(q '([.Results[]?.Vulnerabilities[]? | select(blocking_vuln)] | length)
+                      + ([.Results[]?.Secrets[]?] | length)
+                      + ([.Results[]?.Misconfigurations[]? | select(blocking_misconf)] | length)')
+          {
+            echo "blocking-count=$blocking"
+            echo "vulnerability-count=$vulns"
+            echo "secret-count=$secrets"
+            echo "misconfiguration-count=$misconfigs"
+          } >> "$GITHUB_OUTPUT"
+
+          summary=$(jq -c --arg scanners "$SCANNERS" --arg scope "$SCAN_PATH" --arg skip "$SKIP_DIRS" \
+            --arg mode "$MODE" --arg severity "$SEVERITY" --arg version "$TRIVY_VERSION" \
+            --argjson unfixed "$FAIL_ON_UNFIXED" --argjson blocking "$blocking" '
+            def levels: ["CRITICAL","HIGH","MEDIUM","LOW","UNKNOWN"];
+            def counts(xs): xs as $findings | reduce levels[] as $s ({}; .[$s] = ([$findings[] | select(.Severity == $s)] | length));
+            {
+              schemaVersion: 1, scannedAt: .CreatedAt, scannerVersion: $version,
+              scanners: ($scanners | split(",")), scope: $scope,
+              skipDirs: ($skip | split(",") | map(select(length > 0))),
+              mode: $mode, blockingSeverities: ($severity | split(",")),
+              failOnUnfixed: $unfixed, blockingCount: $blocking,
+              detectedTargets: ([.Results[]? | select(.Class == "lang-pkgs" or .Class == "os-pkgs" or .Class == "config")
+                | [.Class,.Target]] | unique | length),
+              counts: {
+                vulnerabilities: counts([.Results[]?.Vulnerabilities[]?]),
+                secrets: counts([.Results[]?.Secrets[]?]),
+                misconfigurations: counts([.Results[]?.Misconfigurations[]? | select(.Status == "FAIL")])
+              }
+            }' "$json")
+          echo "summary=$summary" >> "$GITHUB_OUTPUT"
+
+          fix_note=" with a fix available"
+          [[ "$FAIL_ON_UNFIXED" == true ]] && fix_note=""
+          {
+            echo "## Security baseline results"
+            echo
+            echo "| Mode | Blocking severities | Vulnerabilities | Secrets | Misconfigurations | Blocking findings |"
+            echo "|---|---|---|---|---|---|"
+            echo "| \`$MODE\` | $SEVERITY | $vulns | $secrets | $misconfigs | **$blocking** |"
+            echo
+            echo "Scanners: \`$SCANNERS\`. Blocking = vulnerabilities at the listed severities${fix_note}, any secret, and failed misconfiguration checks at the listed severities."
+            echo
+            echo "### Files scanned for dependencies and configuration"
+            echo
+            q '[.Results[]? | select(.Class == "lang-pkgs" or .Class == "os-pkgs" or .Class == "config")
+               | "- `\(.Target | esc)` (\(.Type // .Class))"] | unique
+               | if length == 0 then "- None detected. Dependencies declared in unsupported or missing lockfiles are not scanned." else .[] end'
+            echo
+            if [[ "$vulns" -gt 0 ]]; then
+              echo "### Vulnerabilities"
+              echo
+              echo "| Severity | Package | Installed | Fixed in | Advisory | File |"
+              echo "|---|---|---|---|---|---|"
+              q 'rows(.Vulnerabilities[]?) | sort_by((.Severity | rank), .PkgName) | .[:100][]
+                 | "| \(.Severity) | \(.PkgName | esc) | \(.InstalledVersion | esc) | \((.FixedVersion // "") | if . == "" then "no fix yet" else esc end) | [\(.VulnerabilityID)](\(.PrimaryURL // "https://osv.dev/vulnerability/\(.VulnerabilityID)")) | `\(.Target | esc)` |"'
+              if [[ "$vulns" -gt 100 ]]; then echo; echo "_Showing 100 of $vulns. Full reports are retained only in artifacts mode._"; fi
+              echo
+            fi
+            if [[ "$secrets" -gt 0 ]]; then
+              echo "### Secrets"
+              echo
+              echo "Rotate any real secret before removing it from the code - it remains in Git history."
+              echo
+              echo "| Severity | Rule | File | Line |"
+              echo "|---|---|---|---|"
+              q 'rows(.Secrets[]?) | .[:100][] | "| \(.Severity) | \(.Title | esc) | `\(.Target | esc)` | \(.StartLine) |"'
+              echo
+            fi
+            if [[ "$misconfigs" -gt 0 ]]; then
+              echo "### Misconfigurations"
+              echo
+              echo "| Severity | Check | Title | File |"
+              echo "|---|---|---|---|"
+              q 'rows(.Misconfigurations[]? | select(.Status == "FAIL")) | sort_by(.Severity | rank) | .[:100][]
+                 | "| \(.Severity) | \(.ID // .AVDID) | \(.Title | esc) | `\(.Target | esc)` |"'
+              echo
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always() && steps.evaluate.outcome == 'success' && inputs.results-storage == 'artifacts'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ runner.temp }}/security-baseline/
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact-retention-days }}
+
+      - name: Remove raw reports
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/security-baseline/trivy-results.json" "$RUNNER_TEMP/security-baseline/trivy-results.sarif"
+
+      - name: Enforce
+        env:
+          MODE: ${{ inputs.mode }}
+          BLOCKING: ${{ steps.evaluate.outputs.blocking-count }}
+        run: |
+          set -euo pipefail
+          if [[ "$BLOCKING" -eq 0 ]]; then
+            echo "No blocking findings."
+          elif [[ "$MODE" == enforce ]]; then
+            echo "::error::$BLOCKING blocking finding(s). See the job summary for details."
+            exit 1
+          else
+            echo "::warning::$BLOCKING blocking finding(s). Report mode - not failing the run."
+          fi

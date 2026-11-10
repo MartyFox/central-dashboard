@@ -1,0 +1,39 @@
+# Copy to .github/workflows/security-baseline.yml in your repository.
+# Also uploads findings to GitHub code scanning (Security tab and PR annotations).
+# Needs code scanning: public repositories, or GitHub Code Security on private/internal ones.
+name: Security baseline
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security-baseline:
+    # Pin to a full commit SHA in production, e.g. @<40-char-sha> # v1.0.0
+    uses: your-org/repository-security-scanning/.github/workflows/security-baseline.yml@v1.0.0
+    with:
+      mode: enforce
+      severity: CRITICAL,HIGH
+      scanners: vuln,secret,misconfig
+      runner: ${{ vars.SECURITY_RUNNER || '["ubuntu-24.04"]' }}
+      results-storage: artifacts
+      cache-db: ${{ vars.SECURITY_CACHE_DB == 'true' }}
+
+  code-scanning:
+    needs: security-baseline
+    if: always() && needs.security-baseline.result != 'skipped'
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    uses: your-org/repository-security-scanning/.github/workflows/upload-code-scanning.yml@v1.0.0
+    with:
+      runner: ${{ vars.SECURITY_RUNNER || '["ubuntu-24.04"]' }}
+      artifact-name: ${{ needs.security-baseline.outputs.artifact-name }}

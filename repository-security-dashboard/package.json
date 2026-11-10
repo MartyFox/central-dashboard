@@ -1,0 +1,12 @@
+{
+  "name": "repository-security-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "node --test",
+    "collect": "node scripts/collect.mjs",
+    "check": "node --check scripts/collect.mjs && node --check scripts/github.mjs && node --check scripts/report.mjs && node --check site/app.js && node --check site/model.js"
+  }
+}

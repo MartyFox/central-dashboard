@@ -1,0 +1,12 @@
+# Keeps pinned action SHAs current. Review every update - never auto-merge.
+# Trivy itself is pinned by version and checksum in security-baseline.yml and must be
+# updated by hand (see README "Updating Trivy").
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
