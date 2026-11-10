@@ -29,6 +29,11 @@ export function totalCount(rows, severity, type = 'all') {
   return counts.some(value => value === null) ? null : counts.reduce((sum, value) => sum + value, 0);
 }
 
+export function highestSeverity(row) {
+  return SEVERITIES.find(severity =>
+    TYPES.some(type => (count(row, severity, type) ?? 0) > 0)) ?? null;
+}
+
 export function filterRows(rows, { query = '', status = '', type = 'all', severity = '' } = {},
   staleAfterHours = 192, now = Date.now()) {
   return rows.filter(row => {

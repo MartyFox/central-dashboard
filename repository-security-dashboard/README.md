@@ -156,6 +156,16 @@ Combined counts/totals are unavailable if any configured scanner's counts are
 missing. Selecting a specific type still shows available counts for that scanner.
 Unconfigured application scans show **Not configured**, not zero application findings.
 
+Critical repositories have a red accent, tinted row and explicit severity label;
+positive severity counts use distinct badges (critical red, high orange, medium
+amber). Summary cards emphasise critical findings, secrets and incomplete coverage.
+Repository highlighting uses the highest known severity across all finding types,
+independent of filters, even when another scanner's counts are missing. Scan-health
+badges remain separate: critical highlighting never hides stale/missing/error states,
+and zero or unavailable counts are not given a positive severity highlight.
+The results table scrolls within its own keyboard-focusable region on narrow
+screens. Coverage guidance is available in **How to read these results**.
+
 CodeQL alerts are read live at collection time and may change through triage between
 scans. These counts are not Trivy policy-gate counts or proof of complete coverage.
 For public repos, CodeQL and standard hosted runner execution are free; see

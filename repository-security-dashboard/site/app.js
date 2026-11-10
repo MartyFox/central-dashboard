@@ -1,4 +1,4 @@
-import { SEVERITIES, STATUSES, count, totalCount, effectiveStatus, filterRows } from './model.js';
+import { TYPES, SEVERITIES, STATUSES, count, totalCount, highestSeverity, effectiveStatus, filterRows } from './model.js';
 
 const byId = id => document.getElementById(id);
 function element(tag, text, className) {
@@ -42,12 +42,22 @@ function render() {
   const critical = totalCount(data.repositories, 'CRITICAL');
   const secretCounts = SEVERITIES.map(level => totalCount(data.repositories, level, 'secrets'));
   const secretCount = secretCounts.includes(null) ? null : secretCounts.reduce((sum, value) => sum + value, 0);
-  for (const [label, value] of [
-    ['Configured repositories', data.repositories.length], ['Fresh reports', `${fresh}/${data.repositories.length}`],
-    ['Reported critical findings', critical], ['Reported secrets', secretCount],
+  const knownCritical = data.repositories.some(row =>
+    TYPES.some(type => (count(row, 'CRITICAL', type) ?? 0) > 0));
+  const knownSecrets = data.repositories.some(row =>
+    SEVERITIES.some(level => (count(row, level, 'secrets') ?? 0) > 0));
+  for (const [label, value, tone, detail] of [
+    ['Configured repositories', data.repositories.length, '', 'Explicitly selected inventory'],
+    ['Fresh reports', `${fresh}/${data.repositories.length}`, fresh < data.repositories.length ? 'warning' : '',
+      fresh < data.repositories.length ? 'Review scan coverage and availability' : 'All configured reports are current'],
+    ['Reported critical findings', critical, knownCritical ? 'critical' : critical === null ? 'warning' : '',
+      knownCritical ? 'Critical findings require review' : critical === null ? 'Some scan counts are unavailable' : 'No critical findings reported'],
+    ['Reported secrets', secretCount, knownSecrets ? 'critical' : secretCount === null ? 'warning' : '',
+      knownSecrets ? 'Review and rotate confirmed credentials' : secretCount === null ? 'Some scan counts are unavailable' : 'No secrets reported'],
   ]) {
-    const card = element('div', undefined, 'card');
-    card.append(element('strong', String(value ?? 'Unavailable')), element('span', label));
+    const card = element('div', undefined, `card ${tone}`);
+    card.append(element('span', label, 'card-label'), element('strong', String(value ?? 'Unavailable')),
+      element('small', detail, 'card-detail'));
     totals.append(card);
   }
   byId('updated').textContent = `Collected ${date(data.generatedAt)}. Scan freshness limit: ${data.staleAfterHours} hours. Totals include available older reports.`;
@@ -55,21 +65,32 @@ function render() {
   const body = byId('rows');
   body.replaceChildren();
   for (const row of rows) {
-    const tr = element('tr');
+    const priority = highestSeverity(row);
+    const tr = element('tr', undefined, priority ? `risk-${priority.toLowerCase()}` : '');
     const repo = element('th');
     repo.scope = 'row';
     repo.append(element('span', row.repository));
     if (row.team) repo.append(element('small', row.team));
     repo.append(element('small', row.branch ?? 'Branch unavailable'));
+    if (priority) repo.append(element('span', `${priority} findings`, `risk-label severity-${priority.toLowerCase()}`));
     const status = effectiveStatus(row, data.staleAfterHours, now);
     const statusCell = element('td');
     statusCell.append(element('span', STATUSES[status], `badge ${status}`));
     statusCell.append(element('small', `Baseline: ${row.message}`));
     tr.append(repo, statusCell);
-    for (const severity of SEVERITIES) tr.append(element('td', String(count(row, severity, options.type) ?? '-')));
+    for (const severity of SEVERITIES) {
+      const value = count(row, severity, options.type);
+      const cell = element('td', undefined, 'numeric');
+      const badge = element('span', String(value ?? '-'), value > 0
+        ? `severity-count severity-${severity.toLowerCase()}` : 'severity-count muted');
+      badge.setAttribute('aria-label', value === null ? `${severity} count unavailable` : `${value} ${severity} findings`);
+      cell.append(badge);
+      tr.append(cell);
+    }
     const secrets = row.counts
       ? SEVERITIES.reduce((sum, level) => sum + count(row, level, 'secrets'), 0) : '-';
-    tr.append(element('td', String(secrets)), element('td', String(row.detectedTargets ?? '-')),
+    tr.append(element('td', String(secrets), secrets > 0 ? 'numeric secret-alert' : 'numeric'),
+      element('td', String(row.detectedTargets ?? '-'), 'numeric'),
       element('td', date(row.scannedAt)));
     const linkCell = element('td');
     appendRunLink(linkCell, row.repository, row.runUrl);

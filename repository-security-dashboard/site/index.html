@@ -17,10 +17,15 @@
   </header>
   <main>
     <section id="totals" class="totals" aria-label="Organisation summary"></section>
-    <p class="notice">Counts include all reported severities after exceptions. They are not blocking-policy counts.
+    <details class="notice">
+      <summary>How to read these results</summary>
+      <p>Counts include all reported severities after exceptions. They are not blocking-policy counts.
       Application counts are open CodeQL alerts in configured languages; dismissed alerts are excluded.
       No reported findings does not prove complete coverage. Missing counts are never treated as zero.
-      Combined counts are unavailable when a configured scanner has no results.</p>
+      Combined counts are unavailable when a configured scanner has no results.
+      Repository highlighting reflects the highest known severity across all finding types, even when filters
+      select a different type or another scanner is unavailable. It is not a pass/fail policy decision.</p>
+    </details>
     <section class="filters" aria-label="Filter repositories">
       <label>Repository or team<input id="query" type="search" placeholder="Search configured repositories"></label>
       <label>Status<select id="status"><option value="">All statuses</option></select></label>
@@ -32,13 +37,17 @@
       <label>Severity<select id="severity"><option value="">All severities</option></select></label>
     </section>
     <p id="shown" aria-live="polite"></p>
-    <div class="table-wrap">
+    <div class="results-heading">
+      <h2>Repository findings</h2>
+      <p>Critical and high findings stand out. Scan status remains separate from severity.</p>
+    </div>
+    <div class="table-wrap" role="region" aria-label="Repository security results" tabindex="0">
       <table>
         <caption>Security results by repository. Severity columns follow the selected finding type.</caption>
         <thead><tr>
           <th scope="col">Repository</th><th scope="col">Status</th>
-          <th scope="col">Critical</th><th scope="col">High</th><th scope="col">Medium</th>
-          <th scope="col">Low</th><th scope="col">Unknown</th>
+          <th scope="col" class="numeric">Critical</th><th scope="col" class="numeric">High</th><th scope="col" class="numeric">Medium</th>
+          <th scope="col" class="numeric">Low</th><th scope="col" class="numeric">Unknown</th>
           <th scope="col">Secrets</th><th scope="col">Baseline targets</th>
           <th scope="col">Baseline scan time</th><th scope="col">Baseline run</th>
           <th scope="col">Application scan (CodeQL)</th>
