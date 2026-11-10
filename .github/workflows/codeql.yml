@@ -1,0 +1,88 @@
+name: Application security (CodeQL reusable)
+
+on:
+  workflow_call:
+    inputs:
+      languages:
+        description: 'Required JSON language array, e.g. ["go"] or ["javascript-typescript","java-kotlin"].'
+        type: string
+        required: true
+      runner:
+        description: 'JSON runner labels. Swift requires a macOS runner. Node.js must be available.'
+        type: string
+        default: '["ubuntu-24.04"]'
+      go-version-file:
+        description: Go version file relative to the application repository root; used only for Go.
+        type: string
+        default: go.mod
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: 5
+    outputs:
+      languages: ${{ steps.inputs.outputs.languages }}
+    steps:
+      - name: Validate languages
+        id: inputs
+        env:
+          LANGUAGES: ${{ inputs.languages }}
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync } from 'node:fs';
+          const supported = ['c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'];
+          let languages;
+          try {
+            languages = JSON.parse(process.env.LANGUAGES);
+          } catch {
+            console.error('::error::languages must be a non-empty JSON array of unique supported CodeQL language identifiers');
+            process.exit(1);
+          }
+          if (!Array.isArray(languages) || !languages.length ||
+              languages.some(language => !supported.includes(language)) ||
+              new Set(languages).size !== languages.length) {
+            console.error('::error::languages must be a non-empty JSON array of unique supported CodeQL language identifiers');
+            process.exit(1);
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `languages=${JSON.stringify(languages)}\n`);
+          JS
+
+  analyze:
+    needs: validate
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(needs.validate.outputs.languages) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          cache: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: autobuild
+          queries: security-extended
+      - name: Build for analysis
+        uses: github/codeql-action/autobuild@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+      - name: Analyze and upload
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          category: security-baseline/language:${{ matrix.language }}
+          wait-for-processing: true

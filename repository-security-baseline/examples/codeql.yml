@@ -1,0 +1,23 @@
+name: Application security (CodeQL)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "15 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    permissions:
+      contents: read
+      security-events: write
+    # Replace with the central repository and pin to a full release commit SHA.
+    uses: your-org/repository-security-scanning/.github/workflows/codeql.yml@v1.0.0
+    with:
+      languages: '["javascript-typescript","java-kotlin"]'
+      runner: ${{ vars.SECURITY_RUNNER || '["ubuntu-24.04"]' }}
