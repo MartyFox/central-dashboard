@@ -1,5 +1,12 @@
 {
   "staleAfterHours": 192,
-  "installations": {},
-  "repositories": []
+  "repositories": [
+    {
+      "repository": "MartyFox/hive",
+      "workflow": "security-baseline.yml",
+      "storage": "branch",
+      "resultsBranch": "security-results",
+      "resultsPath": "security-summary.json"
+    }
+  ]
 }
