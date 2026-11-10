@@ -52,6 +52,40 @@ Every run produces:
   committed by the separate branch publisher;
 - optionally, **GitHub code scanning alerts** (Security tab and pull request annotations).
 
+### Dependency and secret coverage across languages
+
+The recommended callers enable `vuln,secret,misconfig`, `detection-priority:
+comprehensive` and `include-dev-deps: true`. These are language-neutral Trivy
+settings; consumers do not select a language for dependency or secret scanning.
+CodeQL still requires an explicit language array for application-code analysis.
+
+| Ecosystem | Dependency evidence needed |
+|---|---|
+| JavaScript / TypeScript | Resolved lockfiles such as `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`; supported production, transitive and development dependencies are included. `package.json` alone is not a resolved dependency inventory. |
+| Go | `go.mod` for modern modules, including listed indirect dependencies. Comprehensive mode also estimates standard-library version from Go declarations. |
+| Java and other ecosystems | Trivy-supported manifests, lockfiles or package artifacts; coverage depends on the analyzer and available resolved version information. |
+
+Keep lockfiles current and commit them. The repository scan does not install or
+build dependencies to discover missing package evidence, and cannot guarantee
+every package was detected. Inspect the job summary's dependency/configuration
+targets; unsupported or missing manifests are a coverage gap, not proof of no CVEs.
+The development-dependency flag only applies where the analyzer supports it.
+
+Comprehensive detection trades some precision for broader coverage; it does not
+guarantee every language runtime or compiler is audited. Go's declared version is
+an estimate, not proof of the version used to build a release. Actual runtime,
+container OS and release-binary checks require scanning those artifacts separately.
+No application toolchain is upgraded automatically.
+
+Secret scanning examines supported files in the checked-out tree regardless of
+application language, not full Git history, and cannot recognise every possible
+credential. Known-vulnerability scanning reports all severities, including findings
+without fixes; `severity` and `fail-on-unfixed` only affect blocking-policy counts.
+
+Existing direct consumers retain `precise` detection and excluded optional dev
+dependencies unless they opt in. Publish the updated central reusable workflow
+before adding the new inputs to consumers, then pin consumers to that commit SHA.
+
 ## When to use it
 
 - The repository has no dependency or secret scanning today.
@@ -261,6 +295,8 @@ See [public-results considerations](../README.md#are-public-scanner-results-a-se
 | `severity` | `CRITICAL,HIGH` | Severities that count as blocking. |
 | `fail-on-unfixed` | `false` | Also block on vulnerabilities with no fixed version. |
 | `scanners` | `vuln,secret` | Add `misconfig` for IaC and Dockerfile checks. |
+| `detection-priority` | `precise` | `precise` or `comprehensive`; recommended callers select `comprehensive` for broader CVE detection, with possible false positives. |
+| `include-dev-deps` | `false` | Include development dependencies where supported; recommended callers select `true`. |
 | `scan-path` | `.` | Directory to scan, relative to the repository root. |
 | `skip-dirs` | _(none)_ | Comma-separated directories or globs to skip, relative to `scan-path`. |
 | `ignore-file` | `.trivyignore.yaml` | Exceptions file, relative to the repository root. |

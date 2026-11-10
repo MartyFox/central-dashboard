@@ -74,6 +74,16 @@ baseline. Consumers only own triggers, language selection and runner configurati
 Publish the central workflow first, then pin consumers to that commit SHA.
 Existing pinned Trivy callers remain unchanged.
 
+Recommended callers also pass `detection-priority: comprehensive` and
+`include-dev-deps: true`, broadening dependency CVE checks across supported
+ecosystems, including JavaScript dev dependencies and inferred Go standard-library
+versions. Trivy discovers package evidence automatically; only CodeQL needs a
+language array. Lockfiles/resolved package evidence must exist. This is not a scan
+of every runtime, release binary or built container. See
+[cross-language coverage and limitations](repository-security-baseline/README.md#dependency-and-secret-coverage-across-languages).
+These new inputs require publishing the updated central workflow and pinning the
+consumer to that new revision; older pinned revisions do not accept them.
+
 Opt in to CodeQL collection with `codeql: {"workflow":"security-baseline.yml","languages":["go"]}`
 on the dashboard's inventory entry. Its central App/PAT additionally needs
 **Code scanning alerts: read**. CodeQL uploads directly to GitHub code scanning,

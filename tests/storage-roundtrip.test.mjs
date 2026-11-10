@@ -30,6 +30,7 @@ test('real workflow summary -> publisher Git content -> branch collector preserv
       ...process.env, RUNNER_TEMP: directory, GITHUB_OUTPUT: join(directory, 'outputs'),
       GITHUB_STEP_SUMMARY: join(directory, 'summary.md'), MODE: 'enforce', SEVERITY: 'CRITICAL,HIGH',
       FAIL_ON_UNFIXED: 'false', SCANNERS: 'vuln,secret', SCAN_PATH: '.', SKIP_DIRS: '', TRIVY_VERSION: '0.76.1',
+      DETECTION_PRIORITY: 'comprehensive', INCLUDE_DEV_DEPS: 'true',
     };
     execFileSync('bash', ['-c', scan.run], { env });
     const outputs = await readFile(env.GITHUB_OUTPUT, 'utf8');

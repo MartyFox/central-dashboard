@@ -46,6 +46,14 @@ on:
         description: Comma-separated Trivy scanners (vuln, secret, misconfig).
         type: string
         default: vuln,secret
+      detection-priority:
+        description: "'precise' reduces false positives; 'comprehensive' broadens vulnerability detection, including inferred Go stdlib versions."
+        type: string
+        default: precise
+      include-dev-deps:
+        description: Include development dependencies where supported by Trivy's package analyzers.
+        type: boolean
+        default: false
       scan-path:
         description: Path to scan, relative to the repository root.
         type: string
@@ -119,6 +127,7 @@ jobs:
           MODE: ${{ inputs.mode }}
           SEVERITY: ${{ inputs.severity }}
           SCANNERS: ${{ inputs.scanners }}
+          DETECTION_PRIORITY: ${{ inputs.detection-priority }}
           SCAN_PATH: ${{ inputs.scan-path }}
           IGNORE_FILE: ${{ inputs.ignore-file }}
           MAX_DAYS: ${{ inputs.max-exception-days }}
@@ -135,6 +144,8 @@ jobs:
             || { echo "::error::severity must be a comma-separated list of UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"; errors=1; }
           [[ "$SCANNERS" =~ ^(vuln|secret|misconfig)(,(vuln|secret|misconfig))*$ ]] \
             || { echo "::error::scanners must be a comma-separated list of vuln,secret,misconfig"; errors=1; }
+          [[ "$DETECTION_PRIORITY" =~ ^(precise|comprehensive)$ ]] \
+            || { echo "::error::detection-priority must be precise or comprehensive"; errors=1; }
           [[ "$SCAN_PATH" != /* && "$SCAN_PATH" != *..* ]] \
             || { echo "::error::scan-path must be relative to the repository root"; errors=1; }
           [[ "$IGNORE_FILE" == *.yaml || "$IGNORE_FILE" == *.yml ]] \
@@ -225,6 +236,8 @@ jobs:
       - name: Run Trivy
         env:
           SCANNERS: ${{ inputs.scanners }}
+          DETECTION_PRIORITY: ${{ inputs.detection-priority }}
+          INCLUDE_DEV_DEPS: ${{ inputs.include-dev-deps }}
           SCAN_PATH: ${{ inputs.scan-path }}
           SKIP_DIRS: ${{ inputs.skip-dirs }}
           IGNORE_FILE: ${{ inputs.ignore-file }}
@@ -235,6 +248,7 @@ jobs:
           mkdir -p "$results"
           args=(fs
             --scanners "$SCANNERS"
+            --detection-priority "$DETECTION_PRIORITY"
             --format json
             --output "$results/trivy-results.json"
             --exit-code 0
@@ -243,6 +257,9 @@ jobs:
             --no-progress
             --skip-version-check
             --disable-telemetry)
+          if [[ "$INCLUDE_DEV_DEPS" == true ]]; then
+            args+=(--include-dev-deps)
+          fi
           if [[ -f "$IGNORE_FILE" ]]; then
             args+=(--ignorefile "$GITHUB_WORKSPACE/$IGNORE_FILE")
           else
@@ -271,6 +288,8 @@ jobs:
           SEVERITY: ${{ inputs.severity }}
           FAIL_ON_UNFIXED: ${{ inputs.fail-on-unfixed }}
           SCANNERS: ${{ inputs.scanners }}
+          DETECTION_PRIORITY: ${{ inputs.detection-priority }}
+          INCLUDE_DEV_DEPS: ${{ inputs.include-dev-deps }}
           SCAN_PATH: ${{ inputs.scan-path }}
           SKIP_DIRS: ${{ inputs.skip-dirs }}
         run: |
@@ -331,6 +350,7 @@ jobs:
             echo "| \`$MODE\` | $SEVERITY | $vulns | $secrets | $misconfigs | **$blocking** |"
             echo
             echo "Scanners: \`$SCANNERS\`. Blocking = vulnerabilities at the listed severities${fix_note}, any secret, and failed misconfiguration checks at the listed severities."
+            echo "Detection priority: \`$DETECTION_PRIORITY\`. Include development dependencies: \`$INCLUDE_DEV_DEPS\`."
             echo
             echo "### Files scanned for dependencies and configuration"
             echo

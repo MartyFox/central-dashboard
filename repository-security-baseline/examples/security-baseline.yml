@@ -19,6 +19,9 @@ jobs:
     uses: your-org/repository-security-scanning/.github/workflows/security-baseline.yml@v1.0.0
     with:
       mode: report
+      scanners: vuln,secret,misconfig
+      detection-priority: comprehensive
+      include-dev-deps: true
       runner: ${{ vars.SECURITY_RUNNER || '["ubuntu-24.04"]' }}
       results-storage: ${{ vars.SECURITY_RESULTS_STORAGE || 'branch' }}
       cache-db: ${{ vars.SECURITY_CACHE_DB == 'true' }}

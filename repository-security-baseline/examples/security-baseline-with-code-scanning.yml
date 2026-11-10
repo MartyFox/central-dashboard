@@ -22,6 +22,8 @@ jobs:
       mode: enforce
       severity: CRITICAL,HIGH
       scanners: vuln,secret,misconfig
+      detection-priority: comprehensive
+      include-dev-deps: true
       runner: ${{ vars.SECURITY_RUNNER || '["ubuntu-24.04"]' }}
       results-storage: artifacts
       cache-db: ${{ vars.SECURITY_CACHE_DB == 'true' }}

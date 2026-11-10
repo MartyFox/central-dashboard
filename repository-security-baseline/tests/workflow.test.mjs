@@ -75,12 +75,59 @@ test('runner and storage are inputs; scanner stays read-only and raw artifacts a
   assert.match(step('Remove raw reports').if, /always/);
 });
 
-test('actual input script rejects unknown storage and invalid retention', () => {
+test('actual input script validates storage, retention and detection priority', () => {
   const valid = { ...process.env, MODE: 'report', SEVERITY: 'HIGH,CRITICAL', SCANNERS: 'vuln,secret',
-    SCAN_PATH: '.', IGNORE_FILE: '.trivyignore.yaml', MAX_DAYS: '180', RESULTS_STORAGE: 'branch', RETENTION: '1' };
+    SCAN_PATH: '.', IGNORE_FILE: '.trivyignore.yaml', MAX_DAYS: '180', RESULTS_STORAGE: 'branch', RETENTION: '1',
+    DETECTION_PRIORITY: 'precise' };
   assert.equal(spawnSync('bash', ['-c', step('Validate inputs').run], { env: valid }).status, 0);
-  for (const change of [{ RESULTS_STORAGE: 'typo' }, { RETENTION: '0' }, { RETENTION: '91' }]) {
+  assert.equal(spawnSync('bash', ['-c', step('Validate inputs').run], {
+    env: { ...valid, DETECTION_PRIORITY: 'comprehensive' },
+  }).status, 0);
+  for (const change of [{ RESULTS_STORAGE: 'typo' }, { RETENTION: '0' }, { RETENTION: '91' },
+    { DETECTION_PRIORITY: '' }, { DETECTION_PRIORITY: 'typo' }]) {
     assert.notEqual(spawnSync('bash', ['-c', step('Validate inputs').run], { env: { ...valid, ...change } }).status, 0);
+  }
+});
+
+test('actual Trivy command wires detection and development dependencies without weakening scanners or severity coverage', async () => {
+  assert.equal(baseline.on.workflow_call.inputs['detection-priority'].default, 'precise');
+  assert.equal(baseline.on.workflow_call.inputs['include-dev-deps'].default, false);
+  const scan = step('Run Trivy');
+  assert.equal(scan.env.DETECTION_PRIORITY, '${{ inputs.detection-priority }}');
+  assert.equal(scan.env.INCLUDE_DEV_DEPS, '${{ inputs.include-dev-deps }}');
+  const directory = await mkdtemp(join(tmpdir(), 'baseline-coverage-'));
+  try {
+    for (const [priority, dev] of [['precise', 'false'], ['comprehensive', 'true']]) {
+      const calls = join(directory, `calls-${priority}`);
+      const local = { ...process.env, RUNNER_TEMP: directory, GITHUB_WORKSPACE: directory,
+        TRIVY_CALLS: calls, DETECTION_PRIORITY: priority, INCLUDE_DEV_DEPS: dev,
+        SCANNERS: 'vuln,secret,misconfig', SCAN_PATH: '.', SKIP_DIRS: 'excluded-fixture',
+        IGNORE_FILE: '.trivyignore.yaml', DB_REPOSITORY: '' };
+      execFileSync('bash', ['-c', `
+        trivy() { printf '%s\\0' CALL "$@" >> "$TRIVY_CALLS"; }
+        ${scan.run}
+      `], { env: local, cwd: directory });
+      const args = (await readFile(calls, 'utf8')).split('\0');
+      const firstCall = args.slice(1, args.indexOf('CALL', 1));
+      assert.equal(firstCall[0], 'fs');
+      assert.equal(firstCall[firstCall.indexOf('--detection-priority') + 1], priority);
+      assert.equal(firstCall.includes('--include-dev-deps'), dev === 'true');
+      assert.equal(firstCall[firstCall.indexOf('--scanners') + 1], 'vuln,secret,misconfig');
+      assert.equal(firstCall[firstCall.indexOf('--skip-dirs') + 1], 'excluded-fixture');
+      assert.ok(!firstCall.includes('--severity'));
+      assert.ok(!firstCall.includes('--ignore-unfixed'));
+      assert.equal(firstCall.at(-1), '.');
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('both recommended callers enable broad dependency and secret coverage', () => {
+  for (const file of ['security-baseline.yml', 'security-baseline-with-code-scanning.yml']) {
+    const caller = JSON.parse(execFileSync('yq', ['-o=json', '.', `${workflows}/../../examples/${file}`], { encoding: 'utf8' }));
+    const inputs = caller.jobs['security-baseline'].with;
+    assert.equal(inputs.scanners, 'vuln,secret,misconfig');
+    assert.equal(inputs['detection-priority'], 'comprehensive');
+    assert.equal(inputs['include-dev-deps'], true);
   }
 });
 
@@ -105,7 +152,8 @@ test('actual evaluation script emits schema/counts without raw findings; enforce
     const local = { ...process.env, RUNNER_TEMP: directory,
       GITHUB_OUTPUT: join(directory, 'outputs'), GITHUB_STEP_SUMMARY: join(directory, 'summary.md'),
       MODE: 'enforce', SEVERITY: 'CRITICAL,HIGH', FAIL_ON_UNFIXED: 'false',
-      SCANNERS: 'vuln,secret,misconfig', SCAN_PATH: '.', SKIP_DIRS: '', TRIVY_VERSION: '0.76.1' };
+      SCANNERS: 'vuln,secret,misconfig', SCAN_PATH: '.', SKIP_DIRS: '', TRIVY_VERSION: '0.76.1',
+      DETECTION_PRIORITY: 'comprehensive', INCLUDE_DEV_DEPS: 'true' };
     execFileSync('bash', ['-c', step('Summarise and evaluate findings').run], { env: local });
     const outputs = await readFile(local.GITHUB_OUTPUT, 'utf8');
     const result = JSON.parse(outputs.split('\n').find(line => line.startsWith('summary=')).slice(8));
@@ -115,6 +163,9 @@ test('actual evaluation script emits schema/counts without raw findings; enforce
     assert.equal(result.detectedTargets, 2);
     assert.equal(result.blockingCount, 3);
     assert.ok(!outputs.includes('NEVER_PUBLISH_RAW_VALUE'));
+    const markdown = await readFile(local.GITHUB_STEP_SUMMARY, 'utf8');
+    assert.match(markdown, /Detection priority: `comprehensive`/);
+    assert.match(markdown, /Include development dependencies: `true`/);
     const enforced = spawnSync('bash', ['-c', step('Enforce').run], { env: { ...local, BLOCKING: '2' } });
     assert.equal(enforced.status, 1);
     assert.equal(spawnSync('bash', ['-c', step('Enforce').run], {
