@@ -8,7 +8,7 @@
       "resultsBranch": "security-results",
       "resultsPath": "security-summary.json",
       "codeql": {
-        "workflow": "codeql.yml",
+        "workflow": "security-baseline.yml",
         "languages": ["go"]
       }
     }

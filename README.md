@@ -37,6 +37,7 @@ Then set repository Actions variables:
 | `SECURITY_RUNNER` | `["ubuntu-24.04"]` | Hosted labels, or `["self-hosted","linux","x64"]` |
 | `SECURITY_RESULTS_STORAGE` | `branch` | `branch` or `artifacts` |
 | `SECURITY_CACHE_DB` | `false` | Set `true` to use GitHub's remote database cache |
+| `CODEQL_LANGUAGES` | unset | Optional SAST language JSON array, e.g. `["go"]`; unset skips CodeQL |
 | `SECURITY_RESULTS_BRANCH` | `security-results` | Dedicated output branch, created on first trusted publication |
 | `SECURITY_RESULTS_PATH` | `security-summary.json` | JSON file on that branch |
 
@@ -61,16 +62,17 @@ The code-scanning upload workflow has its own `runner` input.
 ### Infrastructure and application scanning
 
 Enable Trivy infrastructure checks by passing `scanners: vuln,secret,misconfig`
-in the application caller. Install the separate
-[CodeQL application workflow](repository-security-baseline/examples/codeql.yml)
-caller for SAST, passing a required JSON `languages` input such as
-`["go"]` or `["javascript-typescript","java-kotlin"]`. The implementation lives
+in the application caller. The same
+[baseline caller](repository-security-baseline/examples/security-baseline.yml)
+includes an optional parallel CodeQL job for SAST. Set `CODEQL_LANGUAGES` to
+`["go"]` or `["javascript-typescript","java-kotlin"]`, or pass the `languages`
+input directly in that job. No second consumer workflow is needed. The implementation lives
 centrally in the reusable `.github/workflows/codeql.yml`, alongside the Trivy
 baseline. Consumers only own triggers, language selection and runner configuration.
 Publish the central workflow first, then pin consumers to that commit SHA.
 Existing pinned Trivy callers remain unchanged.
 
-Opt in to CodeQL collection with `codeql: {"workflow":"codeql.yml","languages":["go"]}`
+Opt in to CodeQL collection with `codeql: {"workflow":"security-baseline.yml","languages":["go"]}`
 on the dashboard's inventory entry. Its central App/PAT additionally needs
 **Code scanning alerts: read**. CodeQL uploads directly to GitHub code scanning,
 so this integration works with branch storage and needs no source SARIF artifact.

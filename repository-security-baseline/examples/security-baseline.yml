@@ -23,6 +23,16 @@ jobs:
       results-storage: ${{ vars.SECURITY_RESULTS_STORAGE || 'branch' }}
       cache-db: ${{ vars.SECURITY_CACHE_DB == 'true' }}
 
+  codeql:
+    if: vars.CODEQL_LANGUAGES != ''
+    permissions:
+      contents: read
+      security-events: write
+    uses: your-org/repository-security-scanning/.github/workflows/codeql.yml@v1.0.0
+    with:
+      languages: ${{ vars.CODEQL_LANGUAGES }}
+      runner: ${{ vars.SECURITY_RUNNER || '["ubuntu-24.04"]' }}
+
   publish:
     needs: security-baseline
     if: >-

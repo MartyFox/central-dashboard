@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 
 const path = fileURLToPath(new URL('../.github/workflows/codeql.yml', import.meta.url));
 const workflow = JSON.parse(execFileSync('yq', ['-o=json', '.', path], { encoding: 'utf8' }));
-const callerPath = fileURLToPath(new URL('../examples/codeql.yml', import.meta.url));
+const callerPath = fileURLToPath(new URL('../examples/security-baseline.yml', import.meta.url));
 const caller = JSON.parse(execFileSync('yq', ['-o=json', '.', callerPath], { encoding: 'utf8' }));
 
 test('reusable CodeQL takes consumer languages and runner inputs with least permissions and no raw artifact uploads', () => {
@@ -45,16 +45,31 @@ test('reusable CodeQL takes consumer languages and runner inputs with least perm
 test('consumer owns triggers and language selection, not scanner implementation', async () => {
   assert.deepEqual(Object.keys(caller.on), ['pull_request', 'push', 'schedule', 'workflow_dispatch']);
   assert.deepEqual(caller.on.push.branches, ['main']);
-  const job = caller.jobs.analyze;
+  assert.deepEqual(Object.keys(caller.jobs), ['security-baseline', 'codeql', 'publish']);
+  const job = caller.jobs.codeql;
   assert.match(job.uses, /\/.github\/workflows\/codeql.yml@/);
-  assert.deepEqual(JSON.parse(job.with.languages), ['javascript-typescript', 'java-kotlin']);
+  assert.equal(job.with.languages, '${{ vars.CODEQL_LANGUAGES }}');
+  assert.equal(job.if, "vars.CODEQL_LANGUAGES != ''");
   assert.equal(job.permissions['security-events'], 'write');
+  assert.equal(caller.permissions.contents, 'read');
+  assert.equal(caller.jobs['security-baseline'].permissions, undefined);
+  assert.equal(caller.jobs.publish.needs, 'security-baseline');
+  assert.equal(caller.jobs.publish.permissions.contents, 'write');
+  assert.equal(job.needs, undefined);
   assert.ok(!job.steps);
   assert.ok(!job.strategy);
   assert.match(job.with.runner, /vars.SECURITY_RUNNER/);
   const text = await readFile(path, 'utf8');
   assert.ok(!text.includes('secrets.'));
   assert.ok(!text.includes('pull_request_target'));
+});
+
+test('combined consumer example is the only normal baseline caller and allows dashboard collection from the same run', async () => {
+  const inventory = JSON.parse(await readFile(new URL('../../repository-security-dashboard/repositories.json', import.meta.url), 'utf8'));
+  const hive = inventory.repositories.find(entry => entry.repository === 'MartyFox/hive');
+  assert.equal(hive.codeql.workflow, hive.workflow);
+  assert.equal(hive.workflow, 'security-baseline.yml');
+  await assert.rejects(readFile(new URL('../examples/codeql.yml', import.meta.url)), { code: 'ENOENT' });
 });
 
 test('actual input validator accepts supported mixed languages and rejects malformed/empty/duplicate/unknown selection', async () => {

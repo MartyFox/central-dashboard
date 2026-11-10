@@ -66,7 +66,7 @@ this in `report` mode alongside them.
 
 The Trivy baseline does not provide source-code analysis (SAST), container image
 scanning of built images, or licence compliance. For SAST, install the separate
-[CodeQL workflow](examples/codeql.yml) described below.
+[combined baseline caller](examples/security-baseline.yml) described below.
 
 ## Getting started
 
@@ -134,16 +134,21 @@ files in the repository. This does not inspect deployed infrastructure or scan
 packages inside built container images. Counts flow through the existing publisher
 and dashboard without changing the reusable workflow or its pinned version.
 
-For application SAST, copy [examples/codeql.yml](examples/codeql.yml) to the
-application repository's `.github/workflows/codeql.yml`. This small caller selects
-languages and invokes the central reusable [CodeQL workflow](.github/workflows/codeql.yml).
+For application SAST, use the same [baseline caller](examples/security-baseline.yml);
+do not install a second consumer workflow. Set Actions variable `CODEQL_LANGUAGES`
+to a JSON language array, for example `["javascript-typescript","java-kotlin"]`.
+Leaving it unset skips CodeQL. The caller contains parallel Trivy and CodeQL jobs,
+plus the trusted Trivy results publisher, sharing one set of triggers.
+
+The CodeQL job invokes the central reusable [CodeQL workflow](.github/workflows/codeql.yml).
 Publish that implementation at the central repository's root `.github/workflows/codeql.yml`
-first, then replace the example's repository and release ref with a full commit SHA.
+first, then pin the caller's central workflow references to full release commit SHAs.
 The scanner implementation and pinned official CodeQL actions remain central.
+Alternatively, pass a fixed language array directly in the CodeQL job:
 
 ```yaml
 jobs:
-  analyze:
+  codeql:
     permissions:
       contents: read
       security-events: write
@@ -158,8 +163,9 @@ jobs:
   before analysis. Supported identifiers are `c-cpp`, `csharp`, `go`,
   `java-kotlin`, `javascript-typescript`, `python`, `ruby`, `rust`, `swift`.
   `runner` takes JSON runner labels, defaulting to `["ubuntu-24.04"]`; the example
-  passes `SECURITY_RUNNER`. Swift requires an appropriate macOS runner; split callers
-  when languages need different OS runners. Self-hosted runners also need Node.js.
+  passes `SECURITY_RUNNER`. Swift requires an appropriate macOS runner; use separate
+  jobs within the same caller when languages need different OS runners.
+  Self-hosted runners also need Node.js.
 - `go-version-file` defaults to `go.mod` and is used only when Go is selected.
   Override it for a Go module in a subdirectory. Other languages never run Go setup.
   Projects requiring custom build steps instead of autobuild need a separately
@@ -178,9 +184,10 @@ jobs:
   credentials. No additional key or central write access is needed in app repos.
   See [dashboard integration](../repository-security-dashboard/README.md#application-scanning-codeql).
 
-Publish central changes before pushing consumer callers. The local hiveGo caller
-temporarily references `@main` because the new workflow has no published release
-SHA yet; replace it with the central commit SHA once published, before production use.
+In the dashboard inventory, set `codeql.workflow` to `security-baseline.yml`, the
+same caller as Trivy, and match its languages. The dashboard waits for the entire
+workflow to complete. Any failed job keeps the overall run non-passing; Trivy's
+publisher still runs independently of CodeQL when Trivy has finished.
 
 Trivy has no licence fee. CodeQL scanning is free for public repositories; private
 repositories require GitHub Code Security entitlement. Standard GitHub-hosted

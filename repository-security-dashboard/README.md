@@ -110,12 +110,14 @@ Pages Actions deployment uses a one-day deployment artifact, even in branch mode
 
 ### Application scanning (CodeQL)
 
-Install the baseline's [CodeQL application workflow](../repository-security-baseline/examples/codeql.yml)
-in each application repo that needs SAST. Then opt in per inventory entry:
+Enable the CodeQL job in the application's existing
+[baseline caller](../repository-security-baseline/examples/security-baseline.yml)
+by setting `CODEQL_LANGUAGES` (or passing languages directly). No separate consumer
+workflow is needed. Then opt in per inventory entry:
 
 ```json
 "codeql": {
-  "workflow": "codeql.yml",
+  "workflow": "security-baseline.yml",
   "languages": ["go"]
 }
 ```
@@ -132,8 +134,10 @@ Approve any App permission update at its installations. The collector requests
 `security_events: read` only for owners with CodeQL-enabled inventory entries.
 Credentials stay in the central repo; app workflows use their own `GITHUB_TOKEN`.
 
-The collector checks the latest eligible CodeQL workflow on the configured/default
-branch independently of Trivy. It requires successful analyses for every configured
+The collector checks the latest eligible configured caller on the configured/default
+branch. With the combined caller, both scans share one run and its overall conclusion;
+a failed job keeps that run non-passing even if another scanner produced counts.
+CodeQL requires successful analyses for every configured
 language at that run's commit and since that attempt started. Old commit/attempt
 analyses cannot make a newer missing/failed scan appear clean. Analysis warnings or
 zero rules show limited coverage. CodeQL counts are **open alerts**, excluding

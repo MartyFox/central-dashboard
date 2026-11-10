@@ -195,3 +195,35 @@ test('build emits sanitised application data and independent failure states alon
     assert.equal(count(failed.repositories[0], 'CRITICAL'), null);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test('combined caller collects both scanners from the same run and never hides overall workflow failure', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'dashboard-combined-'));
+  const combined = { ...config, repositories: [{
+    ...entry, codeql: { ...entry.codeql, workflow: entry.workflow },
+  }] };
+  const report = { SchemaVersion: 2, CreatedAt: analysis.created_at,
+    Results: [{ Target: 'go.mod', Class: 'lang-pkgs' }] };
+  try {
+    const api = fakeApi();
+    const data = await build(combined, async () => api, directory, now, async () => report);
+    const row = data.repositories[0];
+    assert.equal(row.status, 'clear');
+    assert.equal(row.application.status, 'findings');
+    assert.equal(row.runUrl, row.application.runUrl);
+    assert.ok(!api.calls.some(path => path.includes('/workflows/codeql.yml/')));
+    assert.equal(effectiveStatus(row, 192, now.getTime()), 'findings');
+
+    const failedApi = fakeApi();
+    const pages = failedApi.pages.bind(failedApi);
+    failedApi.pages = async function* (path, key) {
+      for await (const page of pages(path, key)) {
+        yield key === 'workflow_runs' ? page.map(value => ({ ...value, conclusion: 'failure' })) : page;
+      }
+    };
+    const failed = await build(combined, async () => failedApi, directory, now, async () => report);
+    assert.equal(failed.repositories[0].status, 'failed');
+    assert.equal(failed.repositories[0].application.status, 'failed');
+    assert.equal(failed.repositories[0].application.counts, null);
+    assert.equal(effectiveStatus(failed.repositories[0], 192, now.getTime()), 'failed');
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
