@@ -42,9 +42,10 @@ export class GitHub {
   async *pages(path, key) {
     for (let page = 1; page <= 10; page++) {
       const data = await this.json(`${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
-      if (!Array.isArray(data[key])) throw new DashboardError(`GitHub API missing ${key}`);
-      yield data[key];
-      if (data[key].length < 100) return;
+      const entries = key === undefined ? data : data[key];
+      if (!Array.isArray(entries)) throw new DashboardError('GitHub API missing results array');
+      yield entries;
+      if (entries.length < 100) return;
     }
     throw new DashboardError('GitHub pagination limit reached; narrow the configured workflow');
   }
@@ -162,6 +163,9 @@ export async function authentication(config, env = process.env, fetcher = fetch)
           ...(config.repositories.some(entry =>
             entry.repository.split('/')[0].toLowerCase() === owner && entry.storage === 'branch')
             ? { contents: 'read' } : {}),
+          ...(config.repositories.some(entry =>
+            entry.repository.split('/')[0].toLowerCase() === owner && entry.codeql)
+            ? { security_events: 'read' } : {}),
         },
       }),
     });
@@ -170,6 +174,7 @@ export async function authentication(config, env = process.env, fetcher = fetch)
     issued.push(client);
     return client;
   }
+
   return {
     forRepository: async repository => {
       const owner = ownerFor(repository);
@@ -186,4 +191,15 @@ export async function authentication(config, env = process.env, fetcher = fetch)
       }
     },
   };
+}
+
+export async function latestBranchRun(api, repository, workflow, branch) {
+  for await (const runs of api.pages(
+    `/repos/${repository}/actions/workflows/${encodeURIComponent(workflow)}/runs?branch=${encodeURIComponent(branch)}`,
+    'workflow_runs',
+  )) {
+    const run = runs.find(value =>
+      ['push', 'schedule', 'workflow_dispatch'].includes(value.event) && value.head_branch === branch);
+    if (run) return run;
+  }
 }

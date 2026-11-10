@@ -12,7 +12,7 @@ const output = resolve(process.argv[3] ?? (mode === 'shared' ? root : `${root}/r
 const destination = resolve(output, '.github/workflows');
 await mkdir(destination, { recursive: true });
 const files = [
-  ...(mode !== 'dashboard' ? ['security-baseline.yml', 'publish-results.yml', 'upload-code-scanning.yml'] : []),
+  ...(mode !== 'dashboard' ? ['security-baseline.yml', 'publish-results.yml', 'upload-code-scanning.yml', 'codeql.yml'] : []),
   ...(mode !== 'baseline' ? ['dashboard.yml', 'test.yml'] : []),
 ];
 for (const file of files) {

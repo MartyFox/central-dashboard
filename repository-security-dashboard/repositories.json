@@ -6,7 +6,11 @@
       "workflow": "security-baseline.yml",
       "storage": "branch",
       "resultsBranch": "security-results",
-      "resultsPath": "security-summary.json"
+      "resultsPath": "security-summary.json",
+      "codeql": {
+        "workflow": "codeql.yml",
+        "languages": ["go"]
+      }
     }
   ]
 }

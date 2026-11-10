@@ -13,7 +13,7 @@ test('shared packaging matches supplied workflows and wires component paths with
   try {
     execFileSync(process.execPath, [script, 'shared', directory]);
     execFileSync(process.execPath, [script, 'shared', directory]);
-    for (const file of ['security-baseline.yml', 'publish-results.yml', 'upload-code-scanning.yml', 'dashboard.yml', 'test.yml']) {
+    for (const file of ['security-baseline.yml', 'publish-results.yml', 'upload-code-scanning.yml', 'codeql.yml', 'dashboard.yml', 'test.yml']) {
       const generated = await readFile(join(directory, '.github/workflows', file), 'utf8');
       assert.equal(generated, await readFile(join(root, '.github/workflows', file), 'utf8'));
       if (file === 'dashboard.yml') {

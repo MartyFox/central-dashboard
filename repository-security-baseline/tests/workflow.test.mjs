@@ -96,19 +96,24 @@ test('actual evaluation script emits schema/counts without raw findings; enforce
         { Class: 'secret', Target: 'config/key', Secrets: [
           { Severity: 'HIGH', Title: 'Private key', StartLine: 1, Match: 'NEVER_PUBLISH_RAW_VALUE' },
         ] },
+        { Class: 'config', Target: 'Dockerfile', Misconfigurations: [
+          { Severity: 'HIGH', Status: 'FAIL', ID: 'AVD-fixture', Title: 'Insecure configuration' },
+          { Severity: 'HIGH', Status: 'PASS' },
+        ] },
       ],
     }));
     const local = { ...process.env, RUNNER_TEMP: directory,
       GITHUB_OUTPUT: join(directory, 'outputs'), GITHUB_STEP_SUMMARY: join(directory, 'summary.md'),
       MODE: 'enforce', SEVERITY: 'CRITICAL,HIGH', FAIL_ON_UNFIXED: 'false',
-      SCANNERS: 'vuln,secret', SCAN_PATH: '.', SKIP_DIRS: '', TRIVY_VERSION: '0.76.1' };
+      SCANNERS: 'vuln,secret,misconfig', SCAN_PATH: '.', SKIP_DIRS: '', TRIVY_VERSION: '0.76.1' };
     execFileSync('bash', ['-c', step('Summarise and evaluate findings').run], { env: local });
     const outputs = await readFile(local.GITHUB_OUTPUT, 'utf8');
     const result = JSON.parse(outputs.split('\n').find(line => line.startsWith('summary=')).slice(8));
     assert.equal(result.counts.vulnerabilities.CRITICAL, 1);
     assert.equal(result.counts.secrets.HIGH, 1);
-    assert.equal(result.detectedTargets, 1);
-    assert.equal(result.blockingCount, 2);
+    assert.equal(result.counts.misconfigurations.HIGH, 1);
+    assert.equal(result.detectedTargets, 2);
+    assert.equal(result.blockingCount, 3);
     assert.ok(!outputs.includes('NEVER_PUBLISH_RAW_VALUE'));
     const enforced = spawnSync('bash', ['-c', step('Enforce').run], { env: { ...local, BLOCKING: '2' } });
     assert.equal(enforced.status, 1);

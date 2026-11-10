@@ -64,9 +64,9 @@ Every run produces:
 dependency and secret scanning, you may not need this. If they only partly cover it, run
 this in `report` mode alongside them.
 
-**Not suitable** when you need source-code analysis (SAST), container image scanning of
-built images, or licence compliance. Those are possible extensions, not part of the
-baseline.
+The Trivy baseline does not provide source-code analysis (SAST), container image
+scanning of built images, or licence compliance. For SAST, install the separate
+[CodeQL workflow](examples/codeql.yml) described below.
 
 ## Getting started
 
@@ -120,6 +120,74 @@ Raw JSON/SARIF is deleted from runner temp after reporting/upload. Branch mode k
 no scanner artifacts, including on PR runs; PR details remain in their job summaries.
 Optional code-scanning upload requires artifacts mode. The code-scanning example
 uses artifacts explicitly and supports the same runner variable.
+
+### Enable infrastructure and application checks
+
+For infrastructure checks, add this under the baseline caller's `with` block:
+
+```yaml
+scanners: vuln,secret,misconfig
+```
+
+Trivy checks supported Dockerfiles, Terraform, Kubernetes, Helm and CloudFormation
+files in the repository. This does not inspect deployed infrastructure or scan
+packages inside built container images. Counts flow through the existing publisher
+and dashboard without changing the reusable workflow or its pinned version.
+
+For application SAST, copy [examples/codeql.yml](examples/codeql.yml) to the
+application repository's `.github/workflows/codeql.yml`. This small caller selects
+languages and invokes the central reusable [CodeQL workflow](.github/workflows/codeql.yml).
+Publish that implementation at the central repository's root `.github/workflows/codeql.yml`
+first, then replace the example's repository and release ref with a full commit SHA.
+The scanner implementation and pinned official CodeQL actions remain central.
+
+```yaml
+jobs:
+  analyze:
+    permissions:
+      contents: read
+      security-events: write
+    uses: your-org/repository-security-scanning/.github/workflows/codeql.yml@<release-commit-sha>
+    with:
+      languages: '["javascript-typescript","java-kotlin"]'
+```
+
+- `languages` is a required JSON array supplied by the consumer; no language default
+  is assumed centrally. For hiveGo use `["go"]`. Match the dashboard's
+  `codeql.languages` exactly. Invalid/empty/duplicate selections fail explicitly
+  before analysis. Supported identifiers are `c-cpp`, `csharp`, `go`,
+  `java-kotlin`, `javascript-typescript`, `python`, `ruby`, `rust`, `swift`.
+  `runner` takes JSON runner labels, defaulting to `["ubuntu-24.04"]`; the example
+  passes `SECURITY_RUNNER`. Swift requires an appropriate macOS runner; split callers
+  when languages need different OS runners. Self-hosted runners also need Node.js.
+- `go-version-file` defaults to `go.mod` and is used only when Go is selected.
+  Override it for a Go module in a subdirectory. Other languages never run Go setup.
+  Projects requiring custom build steps instead of autobuild need a separately
+  adapted workflow; arbitrary consumer build commands are not exposed as inputs.
+- Uses the `security-extended` query suite and autobuild. Unlike Trivy dependency
+  scanning, CodeQL can build/execute project code during analysis. Do not run
+  untrusted PRs on privileged persistent self-hosted runners.
+- Runs on PRs, pushes to `main`, weekly and manually; change `main` for other
+  default branches. Disable GitHub CodeQL **default setup** before using this
+  advanced workflow if default setup is already enabled.
+- Uploads findings to GitHub's Security tab with job-scoped `security-events: write`,
+  waits for processing and retains no separate Actions SARIF artifact/cache.
+- Reports findings; it does not reuse Trivy's `mode: enforce` policy. Configure
+  GitHub code-scanning rules separately if alerts should block merging.
+- The dashboard reads CodeQL analyses/open alerts directly using read-only central
+  credentials. No additional key or central write access is needed in app repos.
+  See [dashboard integration](../repository-security-dashboard/README.md#application-scanning-codeql).
+
+Publish central changes before pushing consumer callers. The local hiveGo caller
+temporarily references `@main` because the new workflow has no published release
+SHA yet; replace it with the central commit SHA once published, before production use.
+
+Trivy has no licence fee. CodeQL scanning is free for public repositories; private
+repositories require GitHub Code Security entitlement. Standard GitHub-hosted
+runners are free for public repositories. Larger runners, artifact/cache storage,
+self-hosted infrastructure and private-repo usage can still cost money. See
+[GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+and [code scanning availability](https://docs.github.com/en/code-security/concepts/code-scanning/code-scanning).
 
 ## Costs, runners and result storage
 

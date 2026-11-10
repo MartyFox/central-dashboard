@@ -7,6 +7,6 @@
   "scripts": {
     "test": "node --test",
     "collect": "node scripts/collect.mjs",
-    "check": "node --check scripts/collect.mjs && node --check scripts/github.mjs && node --check scripts/report.mjs && node --check site/app.js && node --check site/model.js"
+    "check": "node --check scripts/collect.mjs && node --check scripts/github.mjs && node --check scripts/report.mjs && node --check scripts/codeql.mjs && node --check site/app.js && node --check site/model.js"
   }
 }

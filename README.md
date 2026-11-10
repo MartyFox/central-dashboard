@@ -53,10 +53,30 @@ Approve the App's **Contents: read** grant for owners with branch-mode repos;
 **Actions: read** remains required for latest-run health in both modes.
 
 For hybrid deployment, choose self-hosted labels on source repos and hosted labels
-on the dashboard (or vice versa). No new workflow code is needed. Optional code
-scanning still needs artifacts mode because its uploader consumes SARIF artifacts.
+on the dashboard (or vice versa). No new workflow code is needed. Optional Trivy
+code-scanning upload still needs artifacts mode because its uploader consumes SARIF artifacts.
 The reusable baseline additionally exposes `artifact-retention-days` and `cache-db`.
 The code-scanning upload workflow has its own `runner` input.
+
+### Infrastructure and application scanning
+
+Enable Trivy infrastructure checks by passing `scanners: vuln,secret,misconfig`
+in the application caller. Install the separate
+[CodeQL application workflow](repository-security-baseline/examples/codeql.yml)
+caller for SAST, passing a required JSON `languages` input such as
+`["go"]` or `["javascript-typescript","java-kotlin"]`. The implementation lives
+centrally in the reusable `.github/workflows/codeql.yml`, alongside the Trivy
+baseline. Consumers only own triggers, language selection and runner configuration.
+Publish the central workflow first, then pin consumers to that commit SHA.
+Existing pinned Trivy callers remain unchanged.
+
+Opt in to CodeQL collection with `codeql: {"workflow":"codeql.yml","languages":["go"]}`
+on the dashboard's inventory entry. Its central App/PAT additionally needs
+**Code scanning alerts: read**. CodeQL uploads directly to GitHub code scanning,
+so this integration works with branch storage and needs no source SARIF artifact.
+Only counts and scan metadata reach the static dashboard. See
+[scanner setup and costs](repository-security-baseline/README.md#enable-infrastructure-and-application-checks)
+and [dashboard application integration](repository-security-dashboard/README.md#application-scanning-codeql).
 
 ## Shared repository Pages deployment: proof of concept
 

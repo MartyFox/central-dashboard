@@ -108,6 +108,22 @@ test('explicit installation map takes precedence over legacy single-installation
   await auth.revoke();
 });
 
+test('CodeQL requests security_events read only for installations with opted-in repositories', async () => {
+  const { calls, fetcher } = mockGitHub();
+  const settings = { ...config, repositories: config.repositories.map(entry =>
+    entry.repository === 'Alice/api' ? { ...entry, codeql: { workflow: 'codeql.yml', languages: ['go'] } } : entry) };
+  const auth = await authentication(settings, env, fetcher);
+  await auth.forRepository('Alice/api');
+  await auth.forRepository('bob/api');
+  const permissions = calls.filter(call => call.options.method === 'POST')
+    .map(call => JSON.parse(call.options.body).permissions);
+  assert.deepEqual(permissions, [
+    { actions: 'read', metadata: 'read', security_events: 'read' },
+    { actions: 'read', metadata: 'read' },
+  ]);
+  await auth.revoke();
+});
+
 test('versioned file mapping supports multiple owners without installation variables', async () => {
   const { calls, fetcher } = mockGitHub();
   const { GH_APP_INSTALLATIONS, ...credentials } = env;

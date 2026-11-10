@@ -18,13 +18,16 @@
   <main>
     <section id="totals" class="totals" aria-label="Organisation summary"></section>
     <p class="notice">Counts include all reported severities after exceptions. They are not blocking-policy counts.
-      No reported findings does not prove complete coverage. Missing counts are never treated as zero.</p>
+      Application counts are open CodeQL alerts in configured languages; dismissed alerts are excluded.
+      No reported findings does not prove complete coverage. Missing counts are never treated as zero.
+      Combined counts are unavailable when a configured scanner has no results.</p>
     <section class="filters" aria-label="Filter repositories">
       <label>Repository or team<input id="query" type="search" placeholder="Search configured repositories"></label>
       <label>Status<select id="status"><option value="">All statuses</option></select></label>
       <label>Finding type<select id="type">
         <option value="all">All types</option><option value="vulnerabilities">Vulnerabilities</option>
         <option value="secrets">Secrets</option><option value="misconfigurations">Misconfigurations</option>
+        <option value="applications">Application (CodeQL)</option>
       </select></label>
       <label>Severity<select id="severity"><option value="">All severities</option></select></label>
     </section>
@@ -36,8 +39,9 @@
           <th scope="col">Repository</th><th scope="col">Status</th>
           <th scope="col">Critical</th><th scope="col">High</th><th scope="col">Medium</th>
           <th scope="col">Low</th><th scope="col">Unknown</th>
-          <th scope="col">Secrets</th><th scope="col">Detected targets</th>
-          <th scope="col">Scan time</th><th scope="col">Latest run</th>
+          <th scope="col">Secrets</th><th scope="col">Baseline targets</th>
+          <th scope="col">Baseline scan time</th><th scope="col">Baseline run</th>
+          <th scope="col">Application scan (CodeQL)</th>
         </tr></thead>
         <tbody id="rows"></tbody>
       </table>

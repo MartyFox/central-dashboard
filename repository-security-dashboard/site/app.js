@@ -1,4 +1,4 @@
-import { SEVERITIES, STATUSES, count, effectiveStatus, filterRows } from './model.js';
+import { SEVERITIES, STATUSES, count, totalCount, effectiveStatus, filterRows } from './model.js';
 
 const byId = id => document.getElementById(id);
 function element(tag, text, className) {
@@ -9,6 +9,15 @@ function element(tag, text, className) {
 }
 function date(value) {
   return value ? new Date(value).toLocaleString() : 'Not available';
+}
+function appendRunLink(cell, repository, runUrl, text = 'View run') {
+  const expected = `https://github.com/${repository}/actions/runs/`;
+  if (typeof runUrl === 'string' && runUrl.startsWith(expected) &&
+      /^\d+$/.test(runUrl.slice(expected.length))) {
+    const link = element('a', text);
+    link.href = runUrl;
+    cell.append(link);
+  }
 }
 for (const [value, label] of Object.entries(STATUSES)) {
   const option = element('option', label);
@@ -30,15 +39,15 @@ function render() {
   totals.replaceChildren();
   const fresh = data.repositories.filter(row =>
     ['clear', 'findings', 'limited'].includes(effectiveStatus(row, data.staleAfterHours, now))).length;
-  const critical = data.repositories.reduce((sum, row) => sum + (count(row, 'CRITICAL') ?? 0), 0);
-  const secretCount = data.repositories.reduce((sum, row) =>
-    sum + SEVERITIES.reduce((total, level) => total + (count(row, level, 'secrets') ?? 0), 0), 0);
+  const critical = totalCount(data.repositories, 'CRITICAL');
+  const secretCounts = SEVERITIES.map(level => totalCount(data.repositories, level, 'secrets'));
+  const secretCount = secretCounts.includes(null) ? null : secretCounts.reduce((sum, value) => sum + value, 0);
   for (const [label, value] of [
     ['Configured repositories', data.repositories.length], ['Fresh reports', `${fresh}/${data.repositories.length}`],
     ['Reported critical findings', critical], ['Reported secrets', secretCount],
   ]) {
     const card = element('div', undefined, 'card');
-    card.append(element('strong', String(value)), element('span', label));
+    card.append(element('strong', String(value ?? 'Unavailable')), element('span', label));
     totals.append(card);
   }
   byId('updated').textContent = `Collected ${date(data.generatedAt)}. Scan freshness limit: ${data.staleAfterHours} hours. Totals include available older reports.`;
@@ -55,7 +64,7 @@ function render() {
     const status = effectiveStatus(row, data.staleAfterHours, now);
     const statusCell = element('td');
     statusCell.append(element('span', STATUSES[status], `badge ${status}`));
-    statusCell.append(element('small', status === 'stale' ? 'Report older than freshness threshold' : row.message));
+    statusCell.append(element('small', `Baseline: ${row.message}`));
     tr.append(repo, statusCell);
     for (const severity of SEVERITIES) tr.append(element('td', String(count(row, severity, options.type) ?? '-')));
     const secrets = row.counts
@@ -63,15 +72,17 @@ function render() {
     tr.append(element('td', String(secrets)), element('td', String(row.detectedTargets ?? '-')),
       element('td', date(row.scannedAt)));
     const linkCell = element('td');
-    if (row.runUrl) {
-      const expected = `https://github.com/${row.repository}/actions/runs/`;
-      if (row.runUrl.startsWith(expected) && /^\d+$/.test(row.runUrl.slice(expected.length))) {
-        const link = element('a', 'View run');
-        link.href = row.runUrl;
-        linkCell.append(link);
-      }
+    appendRunLink(linkCell, row.repository, row.runUrl);
+    const applicationCell = element('td');
+    if (row.application) {
+      const applicationStatus = effectiveStatus(row.application, data.staleAfterHours, now);
+      applicationCell.append(element('span', STATUSES[applicationStatus], `badge ${applicationStatus}`),
+        element('small', row.application.message), element('small', date(row.application.scannedAt)));
+      appendRunLink(applicationCell, row.repository, row.application.runUrl, 'View CodeQL run');
+    } else {
+      applicationCell.append(element('span', 'Not configured'));
     }
-    tr.append(linkCell);
+    tr.append(linkCell, applicationCell);
     body.append(tr);
   }
 }

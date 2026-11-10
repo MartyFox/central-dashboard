@@ -1,9 +1,10 @@
 import { readFile, mkdir, writeFile, copyFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { authentication } from './github.mjs';
+import { authentication, latestBranchRun } from './github.mjs';
 import { readReport, summarise } from './report.mjs';
 import { DashboardError } from './errors.mjs';
+import { collectCodeQL, validateCodeQLConfig } from './codeql.mjs';
 
 export function validateConfig(config) {
   if (!config || !Number.isInteger(config.staleAfterHours) || config.staleAfterHours < 1 ||
@@ -29,6 +30,7 @@ export function validateConfig(config) {
       throw new DashboardError('Each repository needs owner/name, workflow filename and valid artifacts/branch storage settings; optional branch and team must be text');
     }
     const name = entry.repository.toLowerCase();
+    if (entry.codeql !== undefined) validateCodeQLConfig(entry.codeql);
     if (seen.has(name)) throw new DashboardError(`Duplicate repository: ${entry.repository}`);
     seen.add(name);
   }
@@ -51,14 +53,7 @@ export async function collectRepository(entry, config, apiForRepository, now, un
     const branch = entry.branch ?? metadata.default_branch;
     if (typeof branch !== 'string' || !branch) throw new DashboardError('Default branch unavailable');
     row.branch = branch;
-    let latest;
-    for await (const runs of api.pages(
-      `${base}/actions/workflows/${encodeURIComponent(entry.workflow)}/runs?branch=${encodeURIComponent(branch)}`, 'workflow_runs',
-    )) {
-      latest = runs.find(run =>
-        ['push', 'schedule', 'workflow_dispatch'].includes(run.event) && run.head_branch === branch);
-      if (latest) break;
-    }
+    const latest = await latestBranchRun(api, entry.repository, entry.workflow, branch);
     if (!latest) return { ...row, status: 'missing', message: 'No eligible branch scan found' };
     if (!Number.isSafeInteger(latest.id) || latest.id < 1) throw new DashboardError('Invalid workflow run ID');
     row.runUrl = `https://github.com/${entry.repository}/actions/runs/${latest.id}`;
@@ -166,7 +161,9 @@ export async function build(config, apiForRepository, output, now = new Date(), 
   validateConfig(config);
   const repositories = [];
   for (const entry of config.repositories) {
-    repositories.push(await collectRepository(entry, config, apiForRepository, now, unpack));
+    const row = await collectRepository(entry, config, apiForRepository, now, unpack);
+    if (entry.codeql) row.application = await collectCodeQL(entry, config, apiForRepository, now);
+    repositories.push(row);
   }
   const data = { schemaVersion: 1, generatedAt: now.toISOString(),
     staleAfterHours: config.staleAfterHours, repositories };
@@ -189,7 +186,7 @@ async function main() {
   } finally {
     await auth.revoke();
   }
-  const errors = data.repositories.filter(row => row.status === 'error').length;
+  const errors = data.repositories.filter(row => row.status === 'error' || row.application?.status === 'error').length;
   console.log(`Collected ${data.repositories.length} configured repositories; ${errors} collection errors.`);
   // Publish explicit per-repository errors rather than leaving an old green dashboard online.
   if (errors && process.env.GITHUB_ACTIONS) {

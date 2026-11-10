@@ -21,7 +21,9 @@ list controls collection only; install the baseline workflow in that repository 
 
 The page shows repository/team, severity counts, secrets, detected dependency/config
 targets, scan freshness, latest run links and explicit missing/error states.
-Search and filters run locally in the browser.
+Optional CodeQL integration adds application counts, separate scan status/time/run
+links and an application finding-type filter. Search and filters run locally in
+the browser.
 
 ```text
 Configured repository list -> GitHub API -> branch summaries / baseline artifacts
@@ -105,6 +107,51 @@ source repositories. Grant updates require owner approval.
 
 See [the storage design and permission matrix](../README.md#results-branch-versus-actions-artifacts).
 Pages Actions deployment uses a one-day deployment artifact, even in branch mode.
+
+### Application scanning (CodeQL)
+
+Install the baseline's [CodeQL application workflow](../repository-security-baseline/examples/codeql.yml)
+in each application repo that needs SAST. Then opt in per inventory entry:
+
+```json
+"codeql": {
+  "workflow": "codeql.yml",
+  "languages": ["go"]
+}
+```
+
+Omit `codeql` to keep existing baseline-only behaviour. `workflow` names the
+application's caller workflow; `languages` must match the JSON `languages` input it
+passes to the central reusable CodeQL workflow. Analysis categories must be
+`security-baseline/language:<language>`, as supplied by the example.
+
+Add **Code scanning alerts: read** to the fine-grained PAT saved as
+`DASHBOARD_READ_TOKEN`, or to the central GitHub App's repository permissions.
+Keep existing **Actions: read**, **Metadata: read**, and branch-mode **Contents: read**.
+Approve any App permission update at its installations. The collector requests
+`security_events: read` only for owners with CodeQL-enabled inventory entries.
+Credentials stay in the central repo; app workflows use their own `GITHUB_TOKEN`.
+
+The collector checks the latest eligible CodeQL workflow on the configured/default
+branch independently of Trivy. It requires successful analyses for every configured
+language at that run's commit and since that attempt started. Old commit/attempt
+analyses cannot make a newer missing/failed scan appear clean. Analysis warnings or
+zero rules show limited coverage. CodeQL counts are **open alerts**, excluding
+dismissed alerts; alerts without a security severity use `UNKNOWN`. Alert details, source
+paths and code snippets are never written to the static site.
+
+The application column shows its own status, time and run link. Overall repository
+status reflects both scanners; a failed/missing app scan cannot leave an overall
+green baseline result. Browser freshness checks age both scans independently.
+Combined counts/totals are unavailable if any configured scanner's counts are
+missing. Selecting a specific type still shows available counts for that scanner.
+Unconfigured application scans show **Not configured**, not zero application findings.
+
+CodeQL alerts are read live at collection time and may change through triage between
+scans. These counts are not Trivy policy-gate counts or proof of complete coverage.
+For public repos, CodeQL and standard hosted runner execution are free; see
+[scanner costs and setup](../repository-security-baseline/README.md#enable-infrastructure-and-application-checks)
+for private-repo entitlement and storage/larger-runner caveats.
 
 ### Public results are an explicit disclosure decision
 

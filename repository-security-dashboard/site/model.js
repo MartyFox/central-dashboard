@@ -1,4 +1,4 @@
-export const TYPES = ['vulnerabilities', 'secrets', 'misconfigurations'];
+export const TYPES = ['vulnerabilities', 'secrets', 'misconfigurations', 'applications'];
 export const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'];
 export const STATUSES = {
   clear: 'No reported findings', findings: 'Findings', limited: 'Limited coverage',
@@ -7,15 +7,26 @@ export const STATUSES = {
 };
 
 export function effectiveStatus(row, staleAfterHours, now = Date.now()) {
-  if (['clear', 'findings', 'limited'].includes(row.status) &&
-      now - Date.parse(row.scannedAt) > staleAfterHours * 3600_000) return 'stale';
-  return row.status;
+  const statuses = [row, ...(row.application ? [row.application] : [])].map(scan =>
+    ['clear', 'findings', 'limited'].includes(scan.status) &&
+      now - Date.parse(scan.scannedAt) > staleAfterHours * 3600_000 ? 'stale' : scan.status);
+  return ['error', 'failed', 'pending', 'missing', 'expired', 'stale', 'limited', 'findings', 'clear']
+    .find(status => statuses.includes(status));
 }
 
 export function count(row, severity, type = 'all') {
+  if (type === 'applications') return row.application?.counts?.[severity] ?? null;
   if (!row.counts) return null;
-  return (type === 'all' ? TYPES : [type])
-    .reduce((sum, category) => sum + row.counts[category][severity], 0);
+  const categories = type === 'all' ? TYPES.filter(category => category !== 'applications') : [type];
+  const baseline = categories.reduce((sum, category) => sum + row.counts[category][severity], 0);
+  if (type !== 'all' || !row.application) return baseline;
+  const application = count(row, severity, 'applications');
+  return application === null ? null : baseline + application;
+}
+
+export function totalCount(rows, severity, type = 'all') {
+  const counts = rows.map(row => count(row, severity, type));
+  return counts.some(value => value === null) ? null : counts.reduce((sum, value) => sum + value, 0);
 }
 
 export function filterRows(rows, { query = '', status = '', type = 'all', severity = '' } = {},
